@@ -27,7 +27,7 @@
                         type="object"
                         string="Set to Unbanned"
                         invisible="result != 'banned'"
-                     />
+                    />
                     <button
                         name="action_whitelist_add"
                         type="object"

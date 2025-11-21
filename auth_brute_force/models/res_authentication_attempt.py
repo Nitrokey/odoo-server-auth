@@ -1,6 +1,5 @@
 import ipaddress
 import logging
-
 from distutils.util import strtobool
 
 import requests

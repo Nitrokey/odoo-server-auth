@@ -8,8 +8,8 @@ from odoo.exceptions import AccessDenied
 from odoo.sql_db import TestCursor
 from odoo.tests.common import HttpCase
 from odoo.tools import DotDict
-from odoo.http import request
 
+# from odoo.http import request
 from ..models import res_authentication_attempt, res_users
 
 _logger = logging.getLogger(__name__)
@@ -47,31 +47,31 @@ def exit_func(self, exc_type, exc_value, traceback):
 TestCursor.__exit__ = exit_func
 
 
-# # HACK https://github.com/odoo/odoo/pull/24833
-# def skip_unless_addons_installed(*addons):
-#     """Decorator to skip a test unless some addons are installed.
-#     :param *str addons:
-#         Addon names that should be installed.
-#     :param reason:
-#         Explain why you must skip this test.
-#     """
+# HACK https://github.com/odoo/odoo/pull/24833
+def skip_unless_addons_installed(*addons):
+    """Decorator to skip a test unless some addons are installed.
+    :param *str addons:
+        Addon names that should be installed.
+    :param reason:
+        Explain why you must skip this test.
+    """
 
-#     @decorator
-#     def _wrapper(method, self, *args, **kwargs):
-#         installed = self.addons_installed(*addons)
-#         if not installed:
-#             missing = set(addons) - set(installed.mapped("name"))
-#             self.skipTest(
-#                 "Required addons not installed: %s" % ",".join(sorted(missing))
-#             )
-#         return method(self, *args, **kwargs)
+    @decorator
+    def _wrapper(method, self, *args, **kwargs):
+        installed = self.addons_installed(*addons)
+        if not installed:
+            missing = set(addons) - set(installed.mapped("name"))
+            self.skipTest(
+                f"Required addons not installed: {','.join(sorted(missing))}"
+            )
+        return method(self, *args, **kwargs)
 
-#     return _wrapper
+    return _wrapper
 
 
 class CommonTests(HttpCase):
     def setUp(self):
-        super(CommonTests, self).setUp()
+        super().setUp()
         # Some tests could retain environ from last test and produce fake
         # results without this patch
         self.create_fake_request()
@@ -98,17 +98,16 @@ class CommonTests(HttpCase):
             )
             # Clean attempts to be able to count in tests
             env["res.authentication.attempt"].search([]).unlink()
-# #Custom Code Commented
-#             user = env.user
-#             user["password"] = self.good_password
-#             # env.user.password = self.good_password
-#             env["res.users"].search(
-#                 [
-#                     ("login", "=", self.data_demo["login"]),
-#                 ]
-#             ).password = self.data_demo["password"]
-# #Custom Code Commented
-
+    # #Custom Code Commented
+    #             user = env.user
+    #             user["password"] = self.good_password
+    #             # env.user.password = self.good_password
+    #             env["res.users"].search(
+    #                 [
+    #                     ("login", "=", self.data_demo["login"]),
+    #                 ]
+    #             ).password = self.data_demo["password"]
+    # #Custom Code Commented
     def create_fake_request(self, ip="127.0.0.1"):
         """Push a fake request onto the request stack so code that reads
         odoo.http.request will find expected attributes (ip, headers, etc.)."""
@@ -134,7 +133,7 @@ class CommonTests(HttpCase):
         PORT = odoo.tools.config["http_port"]
         HOST = "127.0.0.1"
         if url.startswith("/"):
-            url = "http://{}:{}{}".format(HOST, PORT, url)
+            url = f"http://{HOST}:{PORT}{url}"
         if data:
             return self.opener.post(url, data=data, timeout=timeout)
         return self.opener.get(url, timeout=timeout)
