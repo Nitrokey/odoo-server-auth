@@ -79,6 +79,7 @@ class CommonTests(HttpCase):
         self.data_demo = {
             "login": "demo",
             "password": "Demo%&/(908409**",
+            "type": "password",
         }
         self.env["res.users"].create(
             {
@@ -90,8 +91,6 @@ class CommonTests(HttpCase):
 
         with self.cursor() as cr:
             env = self.env(cr)
-            # print('\n\n env 1111111111111', env)
-            # print('\n env.user 22222222222222', env.user)
             env["ir.config_parameter"].set_param("auth_brute_force.max_by_ip_user", 3)
             env["ir.config_parameter"].set_param("auth_brute_force.max_by_ip", 4)
             self.env["ir.config_parameter"].set_param(
@@ -103,7 +102,6 @@ class CommonTests(HttpCase):
 #             user = env.user
 #             user["password"] = self.good_password
 #             # env.user.password = self.good_password
-#             print('\n env.user.password 333333333333', env.user.password)
 #             env["res.users"].search(
 #                 [
 #                     ("login", "=", self.data_demo["login"]),
@@ -136,7 +134,7 @@ class CommonTests(HttpCase):
         PORT = odoo.tools.config["http_port"]
         HOST = "127.0.0.1"
         if url.startswith("/"):
-            url = "http://%s:%s%s" % (HOST, PORT, url)
+            url = "http://{}:{}{}".format(HOST, PORT, url)
         if data:
             return self.opener.post(url, data=data, timeout=timeout)
         return self.opener.get(url, timeout=timeout)

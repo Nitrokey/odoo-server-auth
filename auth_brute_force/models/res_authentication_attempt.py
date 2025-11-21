@@ -1,10 +1,11 @@
 import ipaddress
 import logging
-import requests
 
 from distutils.util import strtobool
 
-from odoo import _, api, fields, models
+import requests
+
+from odoo import api, fields, models
 
 GEOLOCALISATION_URL = "http://ip-api.com/json/{}"
 
@@ -40,9 +41,9 @@ class ResAuthenticationAttempt(models.Model):
     @api.depends("remote")
     def _compute_metadata(self):
         check_remote = strtobool(
-            self.env["ir.config_parameter"].sudo().get_param(
-                "auth_brute_force.check_remote", "True"
-            )
+            self.env["ir.config_parameter"]
+            .sudo()
+            .get_param("auth_brute_force.check_remote", "True")
         )
 
         if not check_remote:
@@ -59,9 +60,7 @@ class ResAuthenticationAttempt(models.Model):
             try:
                 response = requests.get(url, timeout=4)
                 data = response.json()
-                item.remote_metadata = "\n".join(
-                    f"{k}: {v}" for k, v in data.items()
-                )
+                item.remote_metadata = "\n".join(f"{k}: {v}" for k, v in data.items())
             except Exception:
                 _logger.warning("Could not fetch remote details from %s", url)
                 item.remote_metadata = ""
@@ -125,8 +124,6 @@ class ResAuthenticationAttempt(models.Model):
         :return bool:
             ``True`` means it is trusted. ``False`` means that it is banned.
         """
-        # print('\n\n USER remote---------------', remote)
-        # print('\n\n USER login==============', login)
         # Cannot ban without remote
         if not remote:
             return True
@@ -136,9 +133,7 @@ class ResAuthenticationAttempt(models.Model):
             return True
         # Check if remote is banned
         ip_limit = int(get_param("auth_brute_force.max_by_ip", 50))
-        # print('\n\n USER ip_limit==============', ip_limit)
         if self._hits_limit(ip_limit, remote):
-            # print('22222222222222222222222')
             _logger.warning(
                 "Authentication failed from remote '%s'. "
                 "The remote has been banned. "
@@ -149,9 +144,7 @@ class ResAuthenticationAttempt(models.Model):
             return False
         # Check if remote + login combination is banned
         combo_limit = int(get_param("auth_brute_force.max_by_ip_user", 10))
-        # print('\n\n USER combo_limit==============', combo_limit)
         if self._hits_limit(combo_limit, remote, login):
-            # print('3333333333333333333333')
             _logger.warning(
                 "Authentication failed from remote '%s'. "
                 "The remote and login combination has been banned. "
@@ -160,7 +153,6 @@ class ResAuthenticationAttempt(models.Model):
                 login,
             )
             return False
-        # print('444444444444444444444444')
         # If you get here, you are a good boy (for now)
         return True
 

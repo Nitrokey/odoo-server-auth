@@ -1,10 +1,10 @@
 import logging
 from contextlib import contextmanager
 
-from odoo import api, models, SUPERUSER_ID
-from odoo.modules.registry import Registry
+from odoo import SUPERUSER_ID, api, models
 from odoo.exceptions import AccessDenied
 from odoo.http import request
+from odoo.modules.registry import Registry
 
 _logger = logging.getLogger(__name__)
 
@@ -52,7 +52,6 @@ class ResUsers(models.Model):
     def _auth_attempt_force_raise(cls, method):
         """Force a method to raise an AccessDenied on falsey return."""
         with cls._auth_attempt():
-            print('INSIDE')
             return method()
 
     @classmethod
@@ -78,7 +77,9 @@ class ResUsers(models.Model):
     @classmethod
     def _auth_attempt_update(cls, values):
         """Update a given auth attempt if we still ignore its result."""
-        auth_id = cls.environ.get("auth_attempt_id") if hasattr(cls, "environ") else False
+        auth_id = (
+            cls.environ.get("auth_attempt_id") if hasattr(cls, "environ") else False
+        )
         if not auth_id:
             return {}  # No running auth attempt; nothing to do
         # Use a separate cursor to keep changes always
@@ -94,23 +95,14 @@ class ResUsers(models.Model):
     @classmethod
     def _login(cls, db, password, user_agent_env):
         return cls._auth_attempt_force_raise(
-            lambda: super(ResUsers, cls)._login(
-                db, password, user_agent_env
-            )
+            lambda: super(ResUsers, cls)._login(db, password, user_agent_env)
         )
 
     @classmethod
     def authenticate(cls, db, password, user_agent_env):
-        print('\n\n User db----------',db)
-        print('\n\n User password----------',password)
-        print('\n\n User user_agent_env----------',user_agent_env)
-        res = cls._auth_attempt_force_raise(
-            lambda: super(ResUsers, cls).authenticate(
-                db, password, user_agent_env
-            )
+        return cls._auth_attempt_force_raise(
+            lambda: super(ResUsers, cls).authenticate(db, password, user_agent_env)
         )
-        print('\n\n User res----------', res)
-        return res
 
     @api.model
     def _check_credentials(self, credential, env):
@@ -129,4 +121,4 @@ class ResUsers(models.Model):
             if not trusted:
                 raise AccessDenied("banned")
             # Continue with other auth systems
-            return super(ResUsers, self)._check_credentials(credential, env)
+            return super()._check_credentials(credential, env)

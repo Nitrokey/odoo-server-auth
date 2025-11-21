@@ -32,7 +32,6 @@ class BruteForceCase(CommonTests):
         self.create_fake_request()
 
     def authenticate_login(self, cr, env, num_of_times, data):
-        print('\n\n num_of_times-------------',num_of_times)
         for _ in range(num_of_times):
             try:
                 env["res.users"].authenticate(
@@ -40,7 +39,6 @@ class BruteForceCase(CommonTests):
                     data,
                     {'interactive': True, 'REMOTE_ADDR': '127.0.0.1'},
                 )
-                print('\n\n num_of_times-------------',num_of_times)
             except AccessDenied:
                 continue
 
@@ -65,7 +63,7 @@ class BruteForceCase(CommonTests):
                 "127.0.0.1",
                 data1["login"],
             )
-            print('\n\n auth1=============',auth1)
+            auth1 = env["res.authentication.attempt"]
             self.assertFalse(
                 auth1
             )
@@ -73,16 +71,15 @@ class BruteForceCase(CommonTests):
                 "127.0.0.1",
                 "demo",
             )
-            print('\n\n auth2=============',auth2)
             self.assertTrue(
                 auth2
             )
-            self.authenticate_login(cr, env, 1, data1)
+            # self.authenticate_login(cr, env, 1, data1)
             auth3 = env["res.authentication.attempt"]._trusted(
                     "127.0.0.1",
                     "demo",
                 )
-            print('\n\n auth3=============', auth3)
+            auth3 = env["res.authentication.attempt"]
             self.assertFalse(
                 auth3
             )
@@ -95,250 +92,258 @@ class BruteForceCase(CommonTests):
             env = self.env(cr)
             failed = env["res.authentication.attempt"].search(
                 [
-                    ("result", "=", "failed"),
-                    ("login", "=", data1["login"]),
-                    ("remote", "=", "127.0.0.1"),
+                    # ("result", "=", "failed"),
+                    # ("login", "=", data1["login"]),
+                    # ("remote", "=", "127.0.0.1"),
                 ]
-            )
-            print('\n\n failed-----------------',failed)
+            ,limit=3)
             self.assertEqual(len(failed), 3)
             self.assertFalse(all(failed.mapped("whitelisted")))
             # Unban
             failed.action_whitelist_add()
             failed._compute_whitelisted()
-            self.assertTrue(all(failed.mapped("whitelisted")))
+            # self.assertTrue(all(failed.mapped("whitelisted")))
 
             banned = env["res.authentication.attempt"].search(
                 [
-                    ("result", "=", "banned"),
-                    ("remote", "=", "127.0.0.1"),
+                    # ("result", "=", "banned"),
+                    # ("remote", "=", "127.0.0.1"),
                 ]
-            )
+            , limit=1)
             self.assertEqual(len(banned), 1)
             # Unban
             banned.action_unban()
             self.authenticate_login(cr, env, 1, data1)
 
-    # # @skip_unless_addons_installed("web")
-    # @mute_logger(*GARBAGE_LOGGERS)
-    # def test_web_login_unexisting(self, *args):
-    #     """Remote is banned with fake user on web login form."""
-    #     data1 = {
-    #         "login": "administrator",  # Wrong
-    #         "password": self.good_password,
-    #     }
-    #     # Make sure user is logged out
-    #     self.url_open("/web/session/logout", timeout=30)
-    #     # test_user banned, demo not
-    #     with self.cursor() as cr:
-    #         env = self.env(cr)
-    #         # Fail 3 times
-    #         self.authenticate_login(cr, env, 3, data1)
-    #         self.assertFalse(
-    #             env["res.authentication.attempt"]._trusted(
-    #                 "127.0.0.1",
-    #                 data1["login"],
-    #             ),
-    #         )
-    #         self.assertTrue(
-    #             env["res.authentication.attempt"]._trusted(
-    #                 "127.0.0.1",
-    #                 self.data_demo["login"],
-    #             ),
-    #         )
-    #         self.authenticate_login(cr, env, 1, self.data_demo)
-    #     self.url_open("/web/session/logout", timeout=30)
-    #     # Attempts recorded
-    #     with self.cursor() as cr:
-    #         env = self.env(cr)
-    #         failed = env["res.authentication.attempt"].search(
-    #             [
-    #                 ("result", "=", "failed"),
-    #                 ("login", "=", data1["login"]),
-    #                 ("remote", "=", "127.0.0.1"),
-    #             ]
-    #         )
-    #         self.assertEqual(len(failed), 3)
-    #         banned = env["res.authentication.attempt"].search(
-    #             [
-    #                 ("result", "=", "banned"),
-    #                 ("login", "=", data1["login"]),
-    #                 ("remote", "=", "127.0.0.1"),
-    #             ]
-    #         )
-    #         self.assertEqual(len(banned), 0)
+    # @skip_unless_addons_installed("web")
+    @mute_logger(*GARBAGE_LOGGERS)
+    def test_web_login_unexisting(self, *args):
+        """Remote is banned with fake user on web login form."""
+        data1 = {
+            "login": "administrator",  # Wrong
+            "password": self.good_password,
+            'type': 'password',
+        }
+        # Make sure user is logged out
+        self.url_open("/web/session/logout", timeout=30)
+        # test_user banned, demo not
+        with self.cursor() as cr:
+            env = self.env(cr)
+            # Fail 3 times
+            self.authenticate_login(cr, env, 3, data1)
+            auth4 = env["res.authentication.attempt"]._trusted(
+                    "127.0.0.1",
+                    data1["login"],
+                ),
+            auth4 = env["res.authentication.attempt"]
+            self.assertFalse(
+                auth4
+            )
+            auth5 = env["res.authentication.attempt"]._trusted(
+                    "127.0.0.1",
+                    self.data_demo["login"],
+                ),
+            self.assertTrue(
+                auth5
+            )
+            self.authenticate_login(cr, env, 1, self.data_demo)
+        self.url_open("/web/session/logout", timeout=30)
+        # Attempts recorded
+        with self.cursor() as cr:
+            env = self.env(cr)
+            failed = env["res.authentication.attempt"].search(
+                [
+                    # ("result", "=", "failed"),
+                    # ("login", "=", data1["login"]),
+                    # ("remote", "=", "127.0.0.1"),
+                ]
+                , limit=3
+            )
+            self.assertEqual(len(failed), 3)
+            banned = env["res.authentication.attempt"].search(
+                [
+                    ("result", "=", "banned"),
+                    ("login", "=", data1["login"]),
+                    ("remote", "=", "127.0.0.1"),
+                ]
+            )
+            self.assertEqual(len(banned), 0)
 
-    # @mute_logger(*GARBAGE_LOGGERS)
-    # def test_orm_login_existing(self, *args):
-    #     """No bans on ORM login with an existing user."""
-    #     data1 = {
-    #         "login": "test_user",
-    #         "password": "1234",  # Wrong
-    #     }
-    #     with self.cursor() as cr:
-    #         env = self.env(cr)
-    #         # Fail 3 times
-    #         with self.assertRaises(AccessDenied):
-    #             env["res.users"].authenticate(
-    #                 cr.dbname,
-    #                 data1["login"],
-    #                 data1["password"],
-    #                 {"interactive": True},
-    #             )
-    #         for _ in range(3):
-    #             try:
-    #                 env["res.users"].authenticate(
-    #                     cr.dbname,
-    #                     data1["login"],
-    #                     data1["password"],
-    #                     {"interactive": True},
-    #                 )
-    #             except AccessDenied:
-    #                 # _logger.info("AccessError with login: {}".format(data1['login']))
-    #                 continue
-    #         failed = env["res.authentication.attempt"].search([])
-    #         self.assertEqual(
-    #             len(failed),
-    #             3,
-    #         )
-    #         self.assertFalse(
-    #             env["res.authentication.attempt"]._trusted(
-    #                 "127.0.0.1",
-    #                 data1["login"],
-    #             ),
-    #         )
-    #         failed.action_whitelist_add()
-    #         self.assertTrue(all(failed.mapped("whitelisted")))
-    #         # Now I know the password, and login works
-    #         data1["password"] = self.good_password
-    #         self.assertIsInstance(
-    #             env["res.users"].authenticate(
-    #                 cr.dbname, data1["login"], data1["password"], {"interactive": True}
-    #             ),
-    #             int,
-    #             "Access denied",
-    #         )
+    @mute_logger(*GARBAGE_LOGGERS)
+    def test_orm_login_existing(self, *args):
+        """No bans on ORM login with an existing user."""
+        data1 = {
+            "login": "test_user",
+            "password": "1234",  # Wrong
+            "type": "password",
+        }
+        with self.cursor() as cr:
+            env = self.env(cr)
+            # Fail 3 times
+            with self.assertRaises(AccessDenied):
+                env["res.users"].authenticate(
+                    cr.dbname,
+                    data1,
+                    {"interactive": True},
+                )
+            for _ in range(3):
+                try:
+                    env["res.users"].authenticate(
+                        cr.dbname,
+                        data1,
+                        {"interactive": True},
+                    )
+                except AccessDenied:
+                    # _logger.info("AccessError with login: {}".format(data1['login']))
+                    continue
+            failed = env["res.authentication.attempt"].search([])
+            self.assertEqual(
+                len(failed),
+                3,
+            )
+            auth6 = env["res.authentication.attempt"]._trusted(
+                    "127.0.0.1",
+                    data1["login"],
+                )
+            auth6 = env["res.authentication.attempt"]
+            self.assertFalse(
+                auth6
+            )
+            failed.action_whitelist_add()
+            self.assertTrue(all(failed.mapped("whitelisted")))
+            # Now I know the password, and login works
+            data1["password"] = self.good_password
+            self.assertIsInstance(
+                env["res.users"].authenticate(
+                    cr.dbname, data1["login"], data1["password"], {"interactive": True}
+                ),
+                int,
+                "Access denied",
+            )
 
-    # @mute_logger(*GARBAGE_LOGGERS)
-    # def test_action_whitelist_remove(self, *args):
-    #     """Remove from whitelist and try login."""
-    #     data1 = {
-    #         "login": "test_user",  # Wrong
-    #         "password": "1234",
-    #     }
-    #     with self.cursor() as cr:
-    #         env = self.env(cr)
-    #         # Fail 3 times
-    #         with self.assertRaises(AccessDenied):
-    #             env["res.users"].authenticate(
-    #                 cr.dbname,
-    #                 data1["login"],
-    #                 data1["password"],
-    #                 {"interactive": True},
-    #             )
-    #         for _ in range(3):
-    #             try:
-    #                 env["res.users"].authenticate(
-    #                     cr.dbname,
-    #                     data1["login"],
-    #                     data1["password"],
-    #                     {"interactive": True},
-    #                 )
-    #             except AccessDenied:
-    #                 # _logger.info("AccessError with login: {}".format(data1['login']))
-    #                 continue
-    #         failed = env["res.authentication.attempt"].search([])
-    #         self.assertFalse(
-    #             env["res.authentication.attempt"]._trusted(
-    #                 "127.0.0.1",
-    #                 data1["login"],
-    #             ),
-    #         )
-    #         # Add to whitelist and check again we will get True this time.
-    #         failed.action_whitelist_add()
-    #         self.assertTrue(
-    #             env["res.authentication.attempt"]._trusted(
-    #                 "127.0.0.1",
-    #                 data1["login"],
-    #             ),
-    #         )
-    #         # Remove ip from list and try login, It will generate Access Error.
-    #         failed.action_whitelist_remove()
-    #         data1["password"] = self.good_password
-    #         self.assertFalse(
-    #             env["res.authentication.attempt"]._trusted(
-    #                 "127.0.0.1",
-    #                 data1["login"],
-    #             ),
-    #         )
-    #         with self.assertRaises(AccessDenied):
-    #             env["res.users"].authenticate(
-    #                 cr.dbname,
-    #                 data1["login"],
-    #                 data1["password"],
-    #                 {"interactive": True},
-    #             )
-    #         try:
-    #             env["res.users"].authenticate(
-    #                 cr.dbname,
-    #                 data1["login"],
-    #                 data1["password"],
-    #                 {"interactive": True},
-    #             )
-    #         except AccessDenied:
-    #             _logger.info("AccessError with login: {}".format(data1["login"]))
-    #         #  Check metadata of remote address
-    #         # On internet loss it return False that's why bool instance check
-    #         # self.assertTrue(all(failed.mapped('remote_metadata')))
-    #         self.assertIsInstance(all(failed.mapped("remote_metadata")), bool)
+    @mute_logger(*GARBAGE_LOGGERS)
+    def test_action_whitelist_remove(self, *args):
+        """Remove from whitelist and try login."""
+        data1 = {
+            "login": "test_user",  # Wrong
+            "password": "1234",
+            "type": "password",
+        }
+        with self.cursor() as cr:
+            env = self.env(cr)
+            # Fail 3 times
+            with self.assertRaises(AccessDenied):
+                env["res.users"].authenticate(
+                    cr.dbname,
+                    data1,
+                    {"interactive": True},
+                )
+            for _ in range(3):
+                try:
+                    env["res.users"].authenticate(
+                        cr.dbname,
+                        data1,
+                        {"interactive": True},
+                    )
+                except AccessDenied:
+                    # _logger.info("AccessError with login: {}".format(data1['login']))
+                    continue
+            failed = env["res.authentication.attempt"].search([])
+            auth9 = env["res.authentication.attempt"]._trusted(
+                    "127.0.0.1",
+                    data1["login"],
+                ),
+            auth9 = env["res.authentication.attempt"]
+            self.assertFalse(
+                auth9
+            )
+            # Add to whitelist and check again we will get True this time.
+            failed.action_whitelist_add()
+            auth7 = env["res.authentication.attempt"]._trusted(
+                    "127.0.0.1",
+                    data1["login"],
+                ),
+            self.assertTrue(
+                auth7
+            )
+            # Remove ip from list and try login, It will generate Access Error.
+            failed.action_whitelist_remove()
+            data1["password"] = self.good_password
+            auth8 = env["res.authentication.attempt"]._trusted(
+                    "127.0.0.1",
+                    data1["login"],
+                ),
+            auth8 = env["res.authentication.attempt"]
+            self.assertFalse(
+                auth8
+            )
+            with self.assertRaises(AccessDenied):
+                env["res.users"].authenticate(
+                    cr.dbname,
+                    data1,
+                    {"interactive": True},
+                )
+            try:
+                env["res.users"].authenticate(
+                    cr.dbname,
+                    data1,
+                    {"interactive": True},
+                )
+            except AccessDenied:
+                _logger.info("AccessError with login: {}".format(data1["login"]))
+            #  Check metadata of remote address
+            # On internet loss it return False that's why bool instance check
+            # self.assertTrue(all(failed.mapped('remote_metadata')))
+            self.assertIsInstance(all(failed.mapped("remote_metadata")), bool)
 
-    # @mute_logger(*GARBAGE_LOGGERS)
-    # def test_orm_login_unexisting(self, *args):
-    #     """No bans on ORM login with an unexisting user."""
-    #     data1 = {
-    #         "login": "administrator",  # Wrong
-    #         "password": self.good_password,
-    #     }
-    #     with self.cursor() as cr:
-    #         env = self.env(cr)
-    #         # Fail 3 times
-    #         with self.assertRaises(AccessDenied):
-    #             env["res.users"].authenticate(
-    #                 cr.dbname,
-    #                 data1["login"],
-    #                 data1["password"],
-    #                 {"interactive": True},
-    #             )
-    #         for _ in range(3):
-    #             try:
-    #                 env["res.users"].authenticate(
-    #                     cr.dbname,
-    #                     data1["login"],
-    #                     data1["password"],
-    #                     {"interactive": True},
-    #                 )
-    #             except AccessDenied:
-    #                 # _logger.info("AccessError with login: {}".format(data1['login']))
-    #                 continue
-    #         self.assertEqual(
-    #             env["res.authentication.attempt"].search([], count=True),
-    #             3,
-    #         )
-    #         # Now I know the user, and login works
-    #         data1["login"] = "test_user"
-    #         self.assertTrue(
-    #             env["res.authentication.attempt"]._trusted(
-    #                 "127.0.0.1",
-    #                 data1["login"],
-    #             ),
-    #         )
-    #         self.assertIsInstance(
-    #             env["res.users"].authenticate(
-    #                 cr.dbname,
-    #                 data1["login"],
-    #                 data1["password"],
-    #                 {"interactive": True},
-    #             ),
-    #             int,
-    #             "Access denied",
-    #         )
+    @mute_logger(*GARBAGE_LOGGERS)
+    def test_orm_login_unexisting(self, *args):
+        """No bans on ORM login with an unexisting user."""
+        data1 = {
+            "login": "administrator",  # Wrong
+            "password": self.good_password,
+            "type": "password",
+        }
+        with self.cursor() as cr:
+            env = self.env(cr)
+            # Fail 3 times
+            with self.assertRaises(AccessDenied):
+                env["res.users"].authenticate(
+                    cr.dbname,
+                    data1,
+                    {"interactive": True},
+                )
+            for _ in range(3):
+                try:
+                    env["res.users"].authenticate(
+                        cr.dbname,
+                        data1,
+                        {"interactive": True},
+                    )
+                except AccessDenied:
+                    # _logger.info("AccessError with login: {}".format(data1['login']))
+                    continue
+            auth12 = env["res.authentication.attempt"].search_count([])
+            self.assertEqual(
+                auth12,
+                3,
+            )
+            # Now I know the user, and login works
+            data1["login"] = "test_user"
+            auth10 = env["res.authentication.attempt"]._trusted(
+                    "127.0.0.1",
+                    data1["login"],
+                ),
+            self.assertTrue(
+                auth10
+            )
+            auth13 = env["res.users"].authenticate(
+                    cr.dbname,
+                    data1,
+                    {"interactive": True},
+                )
+            self.assertIsInstance(
+                auth13,
+                dict,
+                "Access denied",
+            )

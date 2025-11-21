@@ -1,11 +1,13 @@
-<?xml version="1.0" encoding="UTF-8"?>
+<?xml version="1.0" encoding="UTF-8" ?>
 <odoo>
     <!-- Tree/List View -->
     <record id="view_res_authentication_attempt_list" model="ir.ui.view">
         <field name="model">res.authentication.attempt</field>
         <field name="arch" type="xml">
-            <list decoration-warning="result == 'failed'"
-                  decoration-danger="result == 'banned'">
+            <list
+                decoration-warning="result == 'failed'"
+                decoration-danger="result == 'banned'"
+            >
                 <field name="create_date" />
                 <field name="remote" />
                 <field name="login" />
@@ -20,20 +22,23 @@
         <field name="arch" type="xml">
             <form string="Authentication Attempt">
                 <header>
-                    <button name="action_unban"
-                            type="object"
-                            string="Set to Unbanned"
-                            invisible="result != 'banned'"
+                    <button
+                        name="action_unban"
+                        type="object"
+                        string="Set to Unbanned"
+                        invisible="result != 'banned'"
+                     />
+                    <button
+                        name="action_whitelist_add"
+                        type="object"
+                        string="Add Remote to Whitelist"
+                        invisible="whitelisted"
                     />
-                    <button name="action_whitelist_add"
-                            type="object"
-                            string="Add Remote to Whitelist"
-                            invisible="whitelisted"
-                    />
-                    <button name="action_whitelist_remove"
-                            type="object"
-                            string="Remove Remote from Whitelist"
-                            invisible="not whitelisted"
+                    <button
+                        name="action_whitelist_remove"
+                        type="object"
+                        string="Remove Remote from Whitelist"
+                        invisible="not whitelisted"
                     />
                 </header>
 
@@ -67,22 +72,32 @@
         <field name="model">res.authentication.attempt</field>
         <field name="arch" type="xml">
             <search>
-                <field name="login"/>
-                <filter name="filter_no_success"
-                        string="Without Success"
-                        domain="[('result', '!=', 'successful')]" />
-                <filter name="filter_banned"
-                        string="Banned"
-                        domain="[('result', '=', 'banned')]" />
-                <filter name="filter_failed"
-                        string="Failed"
-                        domain="[('result', '=', 'failed')]" />
-                <filter name="filter_unbanned"
-                        string="Unbanned"
-                        domain="[('result', '=', 'unbanned')]" />
-                <filter name="filter_successful"
-                        string="Successful"
-                        domain="[('result', '=', 'successful')]" />
+                <field name="login" />
+                <filter
+                    name="filter_no_success"
+                    string="Without Success"
+                    domain="[('result', '!=', 'successful')]"
+                />
+                <filter
+                    name="filter_banned"
+                    string="Banned"
+                    domain="[('result', '=', 'banned')]"
+                />
+                <filter
+                    name="filter_failed"
+                    string="Failed"
+                    domain="[('result', '=', 'failed')]"
+                />
+                <filter
+                    name="filter_unbanned"
+                    string="Unbanned"
+                    domain="[('result', '=', 'unbanned')]"
+                />
+                <filter
+                    name="filter_successful"
+                    string="Successful"
+                    domain="[('result', '=', 'successful')]"
+                />
             </search>
         </field>
     </record>
@@ -100,5 +115,6 @@
         id="menu_res_authentication_attempt"
         parent="base.menu_users"
         action="action_res_authentication_attempt"
-        sequence="50" />
+        sequence="50"
+    />
 </odoo>
