@@ -1,6 +1,5 @@
 import ipaddress
 import logging
-from distutils.util import strtobool
 
 import requests
 
@@ -9,6 +8,16 @@ from odoo import api, fields, models
 GEOLOCALISATION_URL = "http://ip-api.com/json/{}"
 
 _logger = logging.getLogger(__name__)
+
+
+def strtobool(val):
+    val = str(val).strip().lower()
+    if val in ("y", "yes", "true", "t", "1", "on"):
+        return True
+    elif val in ("n", "no", "false", "f", "0", "off"):
+        return False
+    else:
+        raise ValueError(f"Invalid truth value: {val}")
 
 
 class ResAuthenticationAttempt(models.Model):

@@ -1,8 +1,6 @@
 import logging
 from unittest.mock import Mock
 
-from decorator import decorator
-
 import odoo
 from odoo.exceptions import AccessDenied
 from odoo.sql_db import TestCursor
@@ -32,13 +30,15 @@ def exit_func(self, exc_type, exc_value, traceback):
         if exc_type is None or isinstance(exc_value, AccessDenied):
             try:
                 self.commit()
-            except Exception:
+            except Exception as e:
                 # Be defensive: commit may fail on closed cursor etc.
+                _logger.warning("Exception: %s", e)
                 pass
     finally:
         try:
             self.close()
-        except Exception:
+        except Exception as e:
+            _logger.warning("Exception: %s", e)
             pass
 
 

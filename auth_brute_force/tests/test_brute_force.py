@@ -2,9 +2,9 @@ from unittest.mock import patch
 
 # from odoo import http
 from odoo.exceptions import AccessDenied
+from odoo.http import request
 from odoo.tests.common import tagged
 from odoo.tools import mute_logger
-from odoo.http import request
 
 from ..models import res_authentication_attempt, res_users
 from .common import CommonTests, logging
@@ -66,7 +66,6 @@ class BruteForceCase(CommonTests):
                     "127.0.0.1",
                     "demo",
                 )
-
             )
             self.authenticate_login(cr, env, 1, data1)
             self.assertFalse(
@@ -87,8 +86,8 @@ class BruteForceCase(CommonTests):
                     ("result", "=", "failed"),
                     ("login", "=", data1["login"]),
                     ("remote", "=", "127.0.0.1"),
-                ]
-                , limit=3
+                ],
+                limit=3,
             )
             self.assertEqual(len(failed), 3)
             self.assertFalse(all(failed.mapped("whitelisted")))
@@ -99,17 +98,19 @@ class BruteForceCase(CommonTests):
 
             self.authenticate_login(cr, env, 1, data1)
             # Create banned record
-            env["res.authentication.attempt"].create({
-                "result": "banned",
-                "login": data1["login"],
-                "remote": "127.0.0.1",
-            })
+            env["res.authentication.attempt"].create(
+                {
+                    "result": "banned",
+                    "login": data1["login"],
+                    "remote": "127.0.0.1",
+                }
+            )
             banned = env["res.authentication.attempt"].search(
                 [
                     ("result", "=", "banned"),
                     ("remote", "=", "127.0.0.1"),
-                ]
-                , limit=1
+                ],
+                limit=1,
             )
             self.assertEqual(len(banned), 1)
             # Unban

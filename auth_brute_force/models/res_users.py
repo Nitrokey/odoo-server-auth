@@ -1,7 +1,7 @@
 import logging
 from contextlib import contextmanager
 
-from odoo import SUPERUSER_ID, api, models
+from odoo import SUPERUSER_ID, _, api, models
 from odoo.exceptions import AccessDenied
 from odoo.http import request
 
@@ -120,6 +120,6 @@ class ResUsers(models.Model):
             # Fail if the remote is banned
             trusted = self.env["res.authentication.attempt"]._trusted(remote, login)
             if not trusted:
-                raise AccessDenied("banned")
+                raise AccessDenied(_("banned"))
             # Continue with other auth systems
             return super()._check_credentials(credential, env)
