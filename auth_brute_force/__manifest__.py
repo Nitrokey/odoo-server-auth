@@ -7,7 +7,6 @@
     "website": "https://github.com/OCA/server-auth",
     "license": "AGPL-3",
     "depends": ["base"],
-    # "depends": ["base", "account", "website"], #Test Only
     "data": [
         "security/ir.model.access.csv",
         "views/res_authentication_attempt_views.xml",

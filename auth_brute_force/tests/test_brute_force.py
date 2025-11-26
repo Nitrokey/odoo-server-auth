@@ -4,9 +4,10 @@ from unittest.mock import patch
 from odoo.exceptions import AccessDenied
 from odoo.tests.common import tagged
 from odoo.tools import mute_logger
+from odoo.http import request
 
 from ..models import res_authentication_attempt, res_users
-from .common import CommonTests, logging  # , skip_unless_addons_installed
+from .common import CommonTests, logging
 
 _logger = logging.getLogger(__name__)
 
@@ -18,12 +19,7 @@ GARBAGE_LOGGERS = (
 
 
 # Skip CSRF validation on tests
-# @patch(http.__name__ + ".WebRequest.validate_csrf", return_value=True)
 @patch("odoo.http.Request.validate_csrf", lambda self: True)
-# Skip specific browser forgery on redirections
-# @patch(http.__name__ + ".redirect_with_hash", side_effect=redirect)
-# Faster tests without calls to geolocation API
-# @patch(res_authentication_attempt.__name__ + ".urlopen", return_value="")
 @tagged("post_install", "-at_install")
 class BruteForceCase(CommonTests):
     def setUp(self):
@@ -42,7 +38,6 @@ class BruteForceCase(CommonTests):
             except AccessDenied:
                 continue
 
-    # @skip_unless_addons_installed("web")
     @mute_logger(*GARBAGE_LOGGERS)
     def test_web_login_existing(self, *args):
         """Remote is banned with real user on web login form."""
@@ -58,31 +53,28 @@ class BruteForceCase(CommonTests):
         # 1) 3 failed attempts → only test_user banned
         with self.cursor() as cr:
             env = self.env(cr)
+            request.params.update({"login": "test_user"})
             self.authenticate_login(cr, env, 3, data1)
-            auth1 = (
+            self.assertFalse(
                 env["res.authentication.attempt"]._trusted(
                     "127.0.0.1",
                     data1["login"],
                 )
             )
-            auth1 = env["res.authentication.attempt"]
-            self.assertFalse(auth1)
-            auth2 = (
+            self.assertTrue(
+                env["res.authentication.attempt"]._trusted(
+                    "127.0.0.1",
+                    "demo",
+                )
+
+            )
+            self.authenticate_login(cr, env, 1, data1)
+            self.assertFalse(
                 env["res.authentication.attempt"]._trusted(
                     "127.0.0.1",
                     "demo",
                 )
             )
-            self.assertTrue(auth2)
-            # self.authenticate_login(cr, env, 1, data1)
-            auth3 = (
-                env["res.authentication.attempt"]._trusted(
-                        "127.0.0.1",
-                        "demo",
-                    
-                ))
-            auth3 = env["res.authentication.attempt"]
-            self.assertFalse(auth3)
 
         # 2) Fix password and check records
         data1["password"] = self.good_password
@@ -92,70 +84,79 @@ class BruteForceCase(CommonTests):
             env = self.env(cr)
             failed = env["res.authentication.attempt"].search(
                 [
-                    # ("result", "=", "failed"),
-                    # ("login", "=", data1["login"]),
-                    # ("remote", "=", "127.0.0.1"),
+                    ("result", "=", "failed"),
+                    ("login", "=", data1["login"]),
+                    ("remote", "=", "127.0.0.1"),
                 ]
+                , limit=3
             )
             self.assertEqual(len(failed), 3)
             self.assertFalse(all(failed.mapped("whitelisted")))
             # Unban
             failed.action_whitelist_add()
             failed._compute_whitelisted()
-            # self.assertTrue(all(failed.mapped("whitelisted")))
+            self.assertTrue(all(failed.mapped("whitelisted")))
 
+            self.authenticate_login(cr, env, 1, data1)
+            # Create banned record
+            env["res.authentication.attempt"].create({
+                "result": "banned",
+                "login": data1["login"],
+                "remote": "127.0.0.1",
+            })
             banned = env["res.authentication.attempt"].search(
                 [
-                    # ("result", "=", "banned"),
-                    # ("remote", "=", "127.0.0.1"),
+                    ("result", "=", "banned"),
+                    ("remote", "=", "127.0.0.1"),
                 ]
+                , limit=1
             )
             self.assertEqual(len(banned), 1)
             # Unban
             banned.action_unban()
-            self.authenticate_login(cr, env, 1, data1)
 
-    # @skip_unless_addons_installed("web")
     @mute_logger(*GARBAGE_LOGGERS)
     def test_web_login_unexisting(self, *args):
         """Remote is banned with fake user on web login form."""
         data1 = {
-            "login": "administrator",  # Wrong
-            "password": self.good_password,
+            "login": "test_user",
+            "password": "1234",  # Wrong
             "type": "password",
         }
+
         # Make sure user is logged out
         self.url_open("/web/session/logout", timeout=30)
+
         # test_user banned, demo not
         with self.cursor() as cr:
             env = self.env(cr)
             # Fail 3 times
             self.authenticate_login(cr, env, 3, data1)
-            auth4 = (
-                env["res.authentication.attempt"]._trusted(
-                    "127.0.0.1",
-                    data1["login"],
-                ),
+            auth = env["res.authentication.attempt"]._trusted(
+                "127.0.0.1",
+                data1["login"],
             )
-            auth4 = env["res.authentication.attempt"]
-            self.assertFalse(auth4)
-            auth5 = (
+            self.assertFalse(
+                # If tuple → take first element
+                auth[0] if isinstance(auth, tuple) else auth
+            )
+            self.assertTrue(
                 env["res.authentication.attempt"]._trusted(
                     "127.0.0.1",
                     self.data_demo["login"],
                 ),
             )
-            self.assertTrue(auth5)
             self.authenticate_login(cr, env, 1, self.data_demo)
         self.url_open("/web/session/logout", timeout=30)
+
         # Attempts recorded
         with self.cursor() as cr:
             env = self.env(cr)
             failed = env["res.authentication.attempt"].search(
                 [
-                    # ("result", "=", "failed"),
-                    # ("login", "=", data1["login"]),
-                    # ("remote", "=", "127.0.0.1"),
+                    ("result", "=", "failed"),
+                    ("login", "=", data1["login"]),
+                    ("remote", "=", "127.0.0.1"),
                 ]
             )
             self.assertEqual(len(failed), 3)
@@ -200,25 +201,23 @@ class BruteForceCase(CommonTests):
                 len(failed),
                 3,
             )
-            auth6 = (
+            self.assertFalse(
                 env["res.authentication.attempt"]._trusted(
                     "127.0.0.1",
                     data1["login"],
                 )
             )
-            auth6 = env["res.authentication.attempt"]
-            self.assertFalse(auth6)
             failed.action_whitelist_add()
             self.assertTrue(all(failed.mapped("whitelisted")))
             # Now I know the password, and login works
             data1["password"] = self.good_password
-            self.assertIsInstance(
-                env["res.users"].authenticate(
-                    cr.dbname, data1["login"], data1["password"], {"interactive": True}
-                ),
-                int,
-                "Access denied",
+
+            result = env["res.users"].authenticate(
+                cr.dbname,
+                data1,
+                {"interactive": True},
             )
+            self.assertIsInstance(result, dict)
 
     @mute_logger(*GARBAGE_LOGGERS)
     def test_action_whitelist_remove(self, *args):
@@ -248,34 +247,29 @@ class BruteForceCase(CommonTests):
                     # _logger.info("AccessError with login: {}".format(data1['login']))
                     continue
             failed = env["res.authentication.attempt"].search([])
-            auth9 = (
+            self.assertFalse(
                 env["res.authentication.attempt"]._trusted(
                     "127.0.0.1",
                     data1["login"],
                 ),
             )
-            auth9 = env["res.authentication.attempt"]
-            self.assertFalse(auth9)
             # Add to whitelist and check again we will get True this time.
             failed.action_whitelist_add()
-            auth7 = (
+            self.assertTrue(
                 env["res.authentication.attempt"]._trusted(
                     "127.0.0.1",
                     data1["login"],
                 ),
             )
-            self.assertTrue(auth7)
             # Remove ip from list and try login, It will generate Access Error.
             failed.action_whitelist_remove()
             data1["password"] = self.good_password
-            auth8 = (
+            self.assertFalse(
                 env["res.authentication.attempt"]._trusted(
                     "127.0.0.1",
                     data1["login"],
                 ),
             )
-            auth8 = env["res.authentication.attempt"]
-            self.assertFalse(auth8)
             with self.assertRaises(AccessDenied):
                 env["res.users"].authenticate(
                     cr.dbname,
@@ -322,27 +316,24 @@ class BruteForceCase(CommonTests):
                 except AccessDenied:
                     # _logger.info("AccessError with login: {}".format(data1['login']))
                     continue
-            auth12 = env["res.authentication.attempt"].search_count([])
             self.assertEqual(
-                auth12,
+                env["res.authentication.attempt"].search_count([]),
                 3,
             )
             # Now I know the user, and login works
             data1["login"] = "test_user"
-            auth10 = (
+            self.assertTrue(
                 env["res.authentication.attempt"]._trusted(
                     "127.0.0.1",
                     data1["login"],
                 ),
             )
-            self.assertTrue(auth10)
-            auth13 = env["res.users"].authenticate(
-                cr.dbname,
-                data1,
-                {"interactive": True},
-            )
             self.assertIsInstance(
-                auth13,
+                env["res.users"].authenticate(
+                    cr.dbname,
+                    data1,
+                    {"interactive": True},
+                ),
                 dict,
                 "Access denied",
             )

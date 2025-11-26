@@ -4,7 +4,6 @@ from contextlib import contextmanager
 from odoo import SUPERUSER_ID, api, models
 from odoo.exceptions import AccessDenied
 from odoo.http import request
-from odoo.modules.registry import Registry
 
 _logger = logging.getLogger(__name__)
 
@@ -58,13 +57,15 @@ class ResUsers(models.Model):
     def _auth_attempt_new(cls, login):
         """Store one authentication attempt, not knowing the result."""
         # Get the right remote address
-        remote_addr = getattr(request.httprequest, "remote_addr", None)
+        try:
+            remote_addr = cls.environ.get("REMOTE_ADDR", False)
+        except AttributeError:
+            return False
         # Exit if it doesn't make sense to store this attempt
         if not remote_addr:
             return False
         # Use a separate cursor to keep changes always
-        reg = Registry(request.db)
-        with reg.cursor() as cr:
+        with cls.pool.cursor() as cr:
             env = api.Environment(cr, SUPERUSER_ID, {})
             attempt = env["res.authentication.attempt"].create(
                 {
