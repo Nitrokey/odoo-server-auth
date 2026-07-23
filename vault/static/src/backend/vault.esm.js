@@ -23,16 +23,101 @@ const vaultService = {
     dependencies: ["vault_utils"],
     start(env, {vault_utils}) {
         /**
-         * Ask the user to enter a password using a dialog and put the password together
+         * Build the WebAuthn user information from the session
          *
-         * @param {Boolean} confirm
-         * @returns password
+         * @returns object with id, name and displayName
          */
-        async function askpassword(confirm = false) {
-            const askpass = await vault_utils.askpass(
-                _t("Please enter the password for your private key"),
-                {confirm}
+        function webauthn_user() {
+            return {
+                id: String(session.uid || session.user_id || "vault-user"),
+                name: session.username || "vault",
+                displayName: session.name || session.username || "vault",
+            };
+        }
+
+        /**
+         * Register a new security key and return its credential information
+         *
+         * @returns object with credential_id and prf_salt
+         */
+        async function register_security_key() {
+            if (!vault_utils.webauthn_supported())
+                throw Error(_t("Security keys are not supported by the browser"));
+
+            const prf_salt = vault_utils.toBase64(
+                vault_utils.generate_bytes(vault_utils.PRFSaltLength)
             );
+            const result = await vault_utils.security_key_register(
+                webauthn_user(),
+                prf_salt
+            );
+            return {
+                credential_id: result.credential_id,
+                prf_salt,
+                // Raw PRF output if the browser evaluated it during registration
+                prf: result.prf,
+            };
+        }
+
+        /**
+         * Ask the user how to protect the private key. Depending on the
+         * configured allowed key types this either directly registers a
+         * security key, only asks for a password, or shows a dialog offering
+         * both a password and a "Use Security Key" option.
+         *
+         * @param {Object} options
+         * @param {Boolean} options.confirm ask to confirm the password
+         * @param {Boolean} options.allow_security_key offer the security key
+         * @param {String} options.title the title shown in the dialog
+         * @returns object {password, credential_id, prf_salt}
+         */
+        async function askpassword(options = {}) {
+            const {
+                confirm = false,
+                allow_security_key = false,
+                title = _t("Please enter the password for your private key"),
+            } = options;
+
+            let allowed = "password";
+            if (allow_security_key) {
+                const params = await rpc("/vault/keys/get");
+                allowed = params.allowed_key_types || "all";
+            }
+
+            // The administrator enforces a security key. Skip the dialog and
+            // register the credential directly.
+            if (allowed === "security_key") {
+                const credential = await register_security_key();
+                return {
+                    password: "",
+                    credential_id: credential.credential_id,
+                    prf_salt: credential.prf_salt,
+                    prf: credential.prf,
+                };
+            }
+
+            // Offer the security key option only if both types are allowed and
+            // the browser supports WebAuthn with the PRF extension.
+            const offer_security_key =
+                allow_security_key &&
+                allowed === "all" &&
+                vault_utils.webauthn_supported();
+
+            const askpass = await vault_utils.askpass(title, {
+                confirm,
+                allowSecurityKey: offer_security_key,
+                registerSecurityKey: register_security_key,
+            });
+
+            // The user chose to protect the key with a security key
+            if (askpass.credential_id && askpass.prf_salt) {
+                return {
+                    password: "",
+                    credential_id: askpass.credential_id,
+                    prf_salt: askpass.prf_salt,
+                    prf: askpass.prf,
+                };
+            }
 
             let password = askpass.password || "";
             if (askpass.keyfile) {
@@ -40,18 +125,23 @@ const vaultService = {
                     vault_utils.toBinary(askpass.keyfile)
                 );
             }
-            return password;
+            return {password, credential_id: null, prf_salt: null};
         }
 
         class Vault {
             /**
-             * Generate a new key pair and export to database and object store
+             * Generate a new key pair and export to database and object store.
+             *
+             * @param {Object} options passed to the export to the database
              */
-            async generate_keys() {
+            async generate_keys(options = {}) {
+                const opts =
+                    typeof options === "string" ? {password: options} : {...options};
+
                 this.keys = await vault_utils.generate_key_pair();
                 this.time = new Date();
 
-                if (!(await this._export_to_database()))
+                if (!(await this._export_to_database(opts)))
                     throw Error(_t("Failed to export the keys to the database"));
 
                 await this._export_to_store();
@@ -61,12 +151,17 @@ const vaultService = {
              * Check if export to database is required due to key migration
              *
              * @private
-             * @param {String} password
+             * @param {Object} options
              */
-            async _check_key_migration(password = null) {
-                if (!this.version) await this._export_to_database(password);
+            async _check_key_migration(options = {}) {
+                // Only password protected keys are migrated automatically. Security
+                // key protected keys require a user gesture and can't be silently
+                // re-exported.
+                if (this.key_type && this.key_type !== "password") return;
+
+                if (!this.version) await this._export_to_database(options);
                 if (this.iterations < vault_utils.Derive.iterations)
-                    await this._export_to_database(password);
+                    await this._export_to_database(options);
             }
 
             /**
@@ -261,27 +356,75 @@ const vaultService = {
             }
 
             /**
-             * Export the key pairs to the backends
+             * Export the key pairs to the backends. The private key is protected
+             * either by a password or a security key. When no password is passed
+             * explicitly (e.g. the silent migration) the user is asked how to
+             * protect the key.
              *
              * @private
-             * @param {String} password
+             * @param {Object} options with an optional password
              * @returns if the export to the database succeeded
              */
-            async _export_to_database(password = null) {
+            async _export_to_database(options = {}) {
+                // Compatibility: a bare string is treated as the password
+                const opts =
+                    typeof options === "string" ? {password: options} : options;
+
                 // Generate salt for the user key
                 this.salt = vault_utils.generate_bytes(vault_utils.SaltLength).buffer;
                 this.iterations = vault_utils.Derive.iterations;
+                // The version is only used for key/KDF migration and must not
+                // distinguish between key types. The key_type field is used for
+                // that instead.
                 this.version = 1;
 
                 // Wrap the private key with the master key of the user
                 this.iv = vault_utils.generate_bytes(vault_utils.IVLength);
 
-                // Request the password from the user and derive the user key
-                const pass = await vault_utils.derive_key(
-                    password || (await askpassword(true)),
-                    this.salt,
-                    this.iterations
-                );
+                let credential_id = null;
+                let prf_salt = null;
+                let prf = null;
+                let pass = null;
+                let password = opts.password;
+
+                // Ask the user how to protect the key unless the password was
+                // provided explicitly (e.g. the silent key migration).
+                if (!password) {
+                    const auth = await askpassword({
+                        confirm: true,
+                        allow_security_key: true,
+                        title: _t("Protect your new private key"),
+                    });
+                    credential_id = auth.credential_id;
+                    prf_salt = auth.prf_salt;
+                    prf = auth.prf;
+                    password = auth.password;
+                }
+
+                const key_type = credential_id ? "security_key" : "password";
+                this.key_type = key_type;
+
+                if (key_type === "security_key") {
+                    // Reuse the PRF output from the registration ceremony if the
+                    // browser provided it (Chromium) to avoid a second ceremony.
+                    // Otherwise derive it with an additional assertion (Firefox).
+                    pass = prf
+                        ? await vault_utils.security_key_derive_key_from_prf(
+                              prf,
+                              prf_salt
+                          )
+                        : await vault_utils.security_key_derive_key(
+                              credential_id,
+                              prf_salt
+                          );
+                } else {
+                    // Derive the user key from the password
+                    pass = await vault_utils.derive_key(
+                        password,
+                        this.salt,
+                        this.iterations
+                    );
+                }
 
                 // Export the private key wrapped with the master key
                 const private_key = await vault_utils.export_private_key(
@@ -302,6 +445,9 @@ const vaultService = {
                     iterations: this.iterations,
                     salt: vault_utils.toBase64(this.salt),
                     version: this.version,
+                    key_type: key_type,
+                    credential_id: credential_id,
+                    prf_salt: prf_salt,
                 };
 
                 // Export to the server
@@ -323,23 +469,40 @@ const vaultService = {
              */
             async _import_from_database() {
                 const params = await rpc("/vault/keys/get");
-                if (Object.keys(params).length) {
+                if (Object.keys(params).length && params.uuid) {
                     this.salt = vault_utils.fromBase64(params.salt);
                     this.iterations = params.iterations;
                     this.version = params.version || 0;
+                    this.key_type = params.key_type || "password";
 
-                    // Request the password from the user and derive the user key
-                    const raw_password = await askpassword(false);
-                    let password = raw_password;
+                    let pass = null;
+                    let raw_password = null;
 
-                    // Compatibility
-                    if (!this.version) password = session.username + "|" + password;
+                    if (this.key_type === "security_key") {
+                        // Derive the wrapping key from the security key
+                        pass = await vault_utils.security_key_derive_key(
+                            params.credential_id,
+                            params.prf_salt
+                        );
+                    } else {
+                        // Request the password from the user and derive the user key
+                        raw_password = (
+                            await askpassword({
+                                confirm: false,
+                                title: _t("Unlock your private key"),
+                            })
+                        ).password;
+                        let password = raw_password;
 
-                    const pass = await vault_utils.derive_key(
-                        password,
-                        this.salt,
-                        this.iterations
-                    );
+                        // Compatibility
+                        if (!this.version) password = session.username + "|" + password;
+
+                        pass = await vault_utils.derive_key(
+                            password,
+                            this.salt,
+                            this.iterations
+                        );
+                    }
 
                     this.keys = {
                         publicKey: await vault_utils.load_public_key(params.public),
@@ -353,7 +516,7 @@ const vaultService = {
                     this.time = new Date();
                     this.uuid = params.uuid;
 
-                    this._check_key_migration(raw_password);
+                    this._check_key_migration({password: raw_password});
                     return true;
                 }
                 return false;

@@ -69,15 +69,16 @@ patch(FormController.prototype, {
      * Generate a new key pair for the current user
      *
      * @private
+     * @param {Object} options passed to generate_keys (e.g. the key_type)
      */
-    async _newVaultKeyPair() {
+    async _newVaultKeyPair(options = {}) {
         this.uuid = await this.vault._check_database();
         if (this.uuid) {
             // The user has a private key so get it
             const private_key = await this.vault.get_private_key();
 
             // Generate new keys
-            await this.vault.generate_keys();
+            await this.vault.generate_keys(options);
 
             const public_key = await this.vault.get_public_key();
 
@@ -110,7 +111,9 @@ patch(FormController.prototype, {
     },
 
     /**
-     * Generate a new key pair and re-encrypt the master keys of the vaults
+     * Generate a new key pair and re-encrypt the master keys of the vaults.
+     * The user chooses how to protect the private key (password or security
+     * key) in the password dialog during the generation.
      *
      * @private
      */
@@ -124,7 +127,36 @@ patch(FormController.prototype, {
             confirmLabel: _t("Confirm"),
             cancelLabel: _t("Discard"),
             confirm: () => {
-                return self._newVaultKeyPair();
+                return self
+                    ._newVaultKeyPair()
+                    .then(async () => {
+                        // Reload the form so the newly generated key shows up in
+                        // the "Manage my keys" list and the current flag is
+                        // updated. The key is already persisted server-side.
+                        if (self.model && self.model.root) await self.model.root.load();
+
+                        self.notification.add(
+                            _t("A new private key has been generated."),
+                            {type: "success"}
+                        );
+                    })
+                    .catch((error) => {
+                        // Surface errors (e.g. a missing PRF extension) in a
+                        // dialog instead of letting them bubble up as an uncaught
+                        // rejection. Include the error name (e.g. NotAllowedError)
+                        // to make opaque WebAuthn failures diagnosable.
+                        let body = _t("An unexpected error occurred.");
+                        if (error && error.message)
+                            body = error.name
+                                ? `${error.name}: ${error.message}`
+                                : error.message;
+                        else if (error && error.name) body = error.name;
+
+                        self.dialogService.add(AlertDialog, {
+                            title: _t("Failed to generate the key pair"),
+                            body,
+                        });
+                    });
             },
         });
     },
@@ -365,6 +397,7 @@ patch(FormController.prototype, {
         this.ui = useService("ui");
         this.vault = useService("vault");
         this.importer = useService("vault_import");
+        this.notification = useService("notification");
     },
 
     /**

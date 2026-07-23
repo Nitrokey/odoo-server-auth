@@ -23,6 +23,21 @@ class ResUsers(models.Model):
     inbox_enabled = fields.Boolean(default=True)
     inbox_link = fields.Char(compute="_compute_inbox_link", readonly=True, store=False)
     inbox_token = fields.Char(default=lambda self: uuid4(), readonly=True)
+    vault_allowed_key_types = fields.Char(
+        compute="_compute_vault_allowed_key_types",
+        store=False,
+    )
+
+    def _compute_vault_allowed_key_types(self):
+        allowed = (
+            self.env["ir.config_parameter"]
+            .sudo()
+            .get_param("vault.allowed_key_types", "all")
+        )
+        if allowed not in ("password", "security_key", "all"):
+            allowed = "all"
+        for rec in self:
+            rec.vault_allowed_key_types = allowed
 
     @api.depends("keys", "keys.current")
     def _compute_active_key(self):
@@ -66,7 +81,7 @@ class ResUsers(models.Model):
         self.ensure_one()
 
         if not self.active_key:
-            return {}
+            return {"allowed_key_types": self.vault_allowed_key_types}
 
         return {
             "iterations": self.active_key.iterations,
@@ -76,4 +91,8 @@ class ResUsers(models.Model):
             "salt": self.active_key.salt,
             "uuid": self.active_key.uuid,
             "version": self.active_key.version,
+            "key_type": self.active_key.key_type,
+            "credential_id": self.active_key.credential_id,
+            "prf_salt": self.active_key.prf_salt,
+            "allowed_key_types": self.vault_allowed_key_types,
         }

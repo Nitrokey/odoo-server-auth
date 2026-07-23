@@ -11,6 +11,12 @@ Only people registered in the vault can decrypt or encrypt values in a
 vault. The meta data isn't encrypted to be able to search/filter for
 entries more easily.
 
+Instead of a password the private key can be protected by a FIDO2
+security key (e.g. a Nitrokey) using the WebAuthn PRF extension. This is
+an additional method next to the password. An administrator can restrict
+which protection methods are allowed for newly generated keys (password
+only, security key only, or both).
+
 This modules requires a secure context for the browser to work properly
 and therefore HTTPS support is required.
 

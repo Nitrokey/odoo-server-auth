@@ -27,6 +27,14 @@ class ResUsersKey(models.Model):
     iv = fields.Char(required=True, readonly=True)
     iterations = fields.Integer(required=True, readonly=True)
     version = fields.Integer(readonly=True)
+    key_type = fields.Selection(
+        [("password", "Password"), ("security_key", "Security Key")],
+        default="password",
+        required=True,
+        readonly=True,
+    )
+    credential_id = fields.Char(readonly=True)
+    prf_salt = fields.Char(readonly=True)
     # Encrypted with master password of user
     private = fields.Char(required=True, readonly=True)
 
@@ -39,7 +47,18 @@ class ResUsersKey(models.Model):
             else:
                 rec.fingerprint = False
 
-    def _prepare_values(self, iterations, iv, private, public, salt, version):
+    def _prepare_values(
+        self,
+        iterations,
+        iv,
+        private,
+        public,
+        salt,
+        version,
+        key_type="password",
+        credential_id=None,
+        prf_salt=None,
+    ):
         return {
             "iterations": iterations,
             "iv": iv,
@@ -49,9 +68,23 @@ class ResUsersKey(models.Model):
             "user_id": self.env.uid,
             "current": True,
             "version": version,
+            "key_type": key_type,
+            "credential_id": credential_id,
+            "prf_salt": prf_salt,
         }
 
-    def store(self, iterations, iv, private, public, salt, version):
+    def store(
+        self,
+        iterations,
+        iv,
+        private,
+        public,
+        salt,
+        version,
+        key_type="password",
+        credential_id=None,
+        prf_salt=None,
+    ):
         if not all(isinstance(x, str) and x for x in [public, private, iv, salt]):
             raise ValidationError(_("Invalid parameter"))
 
@@ -60,6 +93,24 @@ class ResUsersKey(models.Model):
 
         if not isinstance(version, int):
             raise ValidationError(_("Invalid parameter"))
+
+        if key_type not in ("password", "security_key"):
+            raise ValidationError(_("Invalid parameter"))
+
+        if key_type == "security_key" and not all(
+            isinstance(x, str) and x for x in [credential_id, prf_salt]
+        ):
+            raise ValidationError(_("Invalid parameter"))
+
+        allowed = self.env.user.vault_allowed_key_types
+        if allowed == "password" and key_type != "password":
+            raise ValidationError(
+                _("The administrator only allows password protected keys")
+            )
+        if allowed == "security_key" and key_type != "security_key":
+            raise ValidationError(
+                _("The administrator enforces the usage of a security key")
+            )
 
         domain = [
             ("user_id", "=", self.env.uid),
@@ -71,7 +122,17 @@ class ResUsersKey(models.Model):
             self.env.user.keys.write({"current": False})
 
             rec = self.create(
-                self._prepare_values(iterations, iv, private, public, salt, version)
+                self._prepare_values(
+                    iterations,
+                    iv,
+                    private,
+                    public,
+                    salt,
+                    version,
+                    key_type,
+                    credential_id,
+                    prf_salt,
+                )
             )
             return rec.uuid
 

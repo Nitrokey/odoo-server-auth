@@ -54,6 +54,40 @@ Decryption of master key
   ┃ ╚═════════════╝ ┃   ┗━━━━━━━━┛   ┗━━━━━━━━━━━━━┛    ┗━━━━━━━━━┛      ┗━━━━━━━━━━━━┛
   ┗━━━━━━━━━━━━━━━━━┛
 
+Security key (FIDO2)
+--------------------
+
+Instead of a password the private key can be protected by a FIDO2 security key
+(e.g. a Nitrokey). The WebAuthn PRF extension (based on the CTAP2 hmac-secret
+extension) is used to derive a stable secret from the authenticator for a fixed
+salt. This secret is run through HKDF to obtain the AES key which wraps the
+private key. Only the credential id and the salt are stored in the database;
+the derived secret never leaves the browser. The AES/RSA envelope used for the
+master key and the data is unchanged. This is an additional method next to the
+password and an administrator can enforce it to forbid password protected keys.
+
+Decryption of master key using a security key
+----------------------------------------------
+
+::
+
+  .   ┌──────────────┐     ┏━━━━━━━━━━┓     ┏━━━━━━━━┓
+      │ Security key │━━━━▶┃ WebAuthn ┃━━━━▶┃ derive ┃
+      └──────────────┘     ┃ (PRF)    ┃     ┃ (HKDF) ┃
+                           ┗━━━━━━━━━━┛     ┗━━━━━━━━┛
+                                                ┃
+                            ┌───────────────────┘
+  ┏━━━━━━━━━━━━━━━━━┓       ▼                          ╔════════════╗
+  ┃ User            ┃  ┏━━━━━━━━━━┓                    ║ Master key ║
+  ┃                 ┃  ┃ Password ┃                    ╚════════════╝
+  ┃ ┏━━━━━━━━━━━━━┓ ┃  ┗━━━━━━━━━━┛                          ┃
+  ┃ ┃ Public key  ┃ ┃       ┃                                ▼
+  ┃ ┗━━━━━━━━━━━━━┛ ┃       ▼                           ┏━━━━━━━━━┓
+  ┃ ╔═════════════╗ ┃   ┏━━━━━━━━┓   ┏━━━━━━━━━━━━━┓    ┃ decrypt ┃      ┏━━━━━━━━━━━━┓
+  ┃ ║ Private key ║━━━━━┃ unlock ┃━━▶┃ Private key ┃━━━▶┃ (RSA)   ┃━━━━━▶┃ Master key ┃
+  ┃ ╚═════════════╝ ┃   ┗━━━━━━━━┛   ┗━━━━━━━━━━━━━┛    ┗━━━━━━━━━┛      ┗━━━━━━━━━━━━┛
+  ┗━━━━━━━━━━━━━━━━━┛
+
 Symmetric encryption of the data
 ================================
 

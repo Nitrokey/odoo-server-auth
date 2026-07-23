@@ -145,6 +145,53 @@ QUnit.module(
             }
         );
 
+        QUnit.test("vault: Test security key detection", async function (assert) {
+            assert.expect(1);
+            assert.equal(typeof utils.webauthn_supported(), "boolean");
+        });
+
+        QUnit.test("vault: Test security key key derivation", async function (assert) {
+            assert.expect(4);
+
+            const prf_salt = utils.toBase64(utils.generate_bytes(32));
+            const credential_id = utils.toBase64(utils.generate_bytes(16));
+
+            // Mock the WebAuthn assertion to return a deterministic PRF output
+            const prf_output = utils.generate_bytes(32).buffer;
+            const original = navigator.credentials;
+            navigator.credentials = {
+                get: async function () {
+                    return {
+                        getClientExtensionResults() {
+                            return {prf: {results: {first: prf_output}}};
+                        },
+                    };
+                },
+            };
+
+            try {
+                const key = await utils.security_key_derive_key(
+                    credential_id,
+                    prf_salt
+                );
+                assert.equal(key instanceof CryptoKey, true);
+                assert.equal(key.type, "secret");
+
+                // The derivation has to be deterministic for the same PRF output
+                const again = await utils.security_key_derive_key(
+                    credential_id,
+                    prf_salt
+                );
+                const text = "hello world";
+                const iv = utils.generate_iv_base64();
+                const crypted = await utils.sym_encrypt(key, text, iv);
+                assert.equal("string", typeof crypted);
+                assert.strictEqual(text, await utils.sym_decrypt(again, crypted, iv));
+            } finally {
+                navigator.credentials = original;
+            }
+        });
+
         QUnit.test("vault: Importer/exporter", async function (assert) {
             // The exporter won't skip empty keys
             const child = {
