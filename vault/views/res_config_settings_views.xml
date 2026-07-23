@@ -26,6 +26,13 @@
                     >
                         <field name="group_vault_export" />
                     </setting>
+                    <setting
+                        string="Allowed Key Types"
+                        help="Restrict which protection methods can be used for newly generated private keys of the vault. Existing keys are not affected."
+                        id="vault_allowed_key_types"
+                    >
+                        <field name="vault_allowed_key_types" />
+                    </setting>
                 </block>
             </block>
         </field>

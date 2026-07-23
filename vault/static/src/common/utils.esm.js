@@ -7,6 +7,8 @@ const Hash = "SHA-512";
 const HashLength = 10;
 const IVLength = 12;
 const SaltLength = 32;
+const PRFSaltLength = 32;
+const PRFInfo = "vault-fido2-wrapping-key";
 
 const Asymmetric = {
     name: "RSA-OAEP",
@@ -188,6 +190,186 @@ async function derive_key(data, salt, iterations) {
         false,
         ["wrapKey", "unwrapKey", "encrypt", "decrypt"]
     );
+}
+
+/**
+ * Check if WebAuthn with the PRF extension is available in a secure context
+ *
+ * @returns if security keys can be used
+ */
+function webauthn_supported() {
+    return Boolean(
+        window.isSecureContext &&
+            window.PublicKeyCredential &&
+            navigator.credentials &&
+            typeof navigator.credentials.create === "function" &&
+            typeof navigator.credentials.get === "function"
+    );
+}
+
+/**
+ * Register a new FIDO2 security key credential with the PRF extension enabled.
+ *
+ * User verification is required so that the authenticator always uses the same
+ * hmac-secret (CredRandomWithUV). Otherwise the PRF output would differ between
+ * registration and unlock and the vault couldn't be decrypted anymore.
+ *
+ * When the browser supports evaluating the PRF during registration (Chromium)
+ * the raw PRF output is returned as well so a second ceremony can be avoided.
+ *
+ * @param {Object} user with id, name and displayName
+ * @param {String} prf_salt the base64 encoded salt to evaluate the PRF with
+ * @returns object with the base64 credential_id and the optional prf output
+ */
+async function security_key_register(user, prf_salt) {
+    const challenge = generate_bytes(SaltLength);
+    const extensions = {prf: {}};
+    // Try to evaluate the PRF already during the registration ceremony. This is
+    // supported by Chromium based browsers and avoids a second ceremony.
+    if (prf_salt) extensions.prf = {eval: {first: fromBase64(prf_salt)}};
+
+    let credential = null;
+    try {
+        credential = await navigator.credentials.create({
+            publicKey: {
+                challenge: challenge,
+                rp: {name: window.location.hostname, id: window.location.hostname},
+                user: {
+                    id: fromBinary(user.id),
+                    name: user.name,
+                    displayName: user.displayName || user.name,
+                },
+                pubKeyCredParams: [
+                    // COSE algorithm identifiers: -7 is ES256, -257 is RS256
+                    {type: "public-key", alg: -7},
+                    {type: "public-key", alg: -257},
+                ],
+                authenticatorSelection: {
+                    userVerification: "required",
+                    residentKey: "preferred",
+                },
+                extensions: extensions,
+                timeout: 60000,
+            },
+        });
+    } catch (error) {
+        // The registration requires user verification. A common cause for a
+        // failure with a brand new security key is that no PIN has been set yet,
+        // which some browsers (e.g. Firefox on Linux) report as a generic error
+        // without offering to set one. Surface an actionable message while
+        // keeping the original error name for diagnosis.
+        const name = error && error.name ? error.name : "Error";
+        throw new Error(
+            "Could not register the security key (" +
+                name +
+                "). This could mean no PIN is set on the security key. Please " +
+                "ensure a PIN is set on the device and try again."
+        );
+    }
+
+    if (!credential) throw new Error("Registration of the security key failed");
+
+    const ext = credential.getClientExtensionResults();
+    if (!ext || !ext.prf || !ext.prf.enabled)
+        throw new Error("The security key does not support the PRF extension");
+
+    return {
+        credential_id: toBase64(credential.rawId),
+        // Only present when the browser evaluated the PRF during registration
+        prf: ext.prf.results && ext.prf.results.first ? ext.prf.results.first : null,
+    };
+}
+
+/**
+ * Retrieve the raw PRF output of a security key for a fixed salt
+ *
+ * @private
+ * @param {String} credential_id
+ * @param {String} prf_salt
+ * @returns the raw PRF output as ArrayBuffer
+ */
+async function _security_key_prf(credential_id, prf_salt) {
+    const challenge = generate_bytes(SaltLength);
+    let assertion = null;
+    try {
+        assertion = await navigator.credentials.get({
+            publicKey: {
+                challenge: challenge,
+                allowCredentials: [{type: "public-key", id: fromBase64(credential_id)}],
+                // Required so the same hmac-secret (CredRandomWithUV) is used as
+                // during registration, making the PRF output reproducible.
+                userVerification: "required",
+                extensions: {prf: {eval: {first: fromBase64(prf_salt)}}},
+                timeout: 60000,
+            },
+        });
+    } catch (error) {
+        // Deriving the PRF requires user verification. A common cause for a
+        // failure is that no PIN is set on the security key, which some browsers
+        // (e.g. Firefox on Linux) report as a generic error. Surface an
+        // actionable message while keeping the original error name.
+        const name = error && error.name ? error.name : "Error";
+        throw new Error(
+            "Could not use the security key (" +
+                name +
+                "). This could mean no PIN is set on the security key. Please " +
+                "ensure a PIN is set on the device and try again."
+        );
+    }
+
+    if (!assertion) throw new Error("The security key did not respond");
+
+    const ext = assertion.getClientExtensionResults();
+    if (!ext || !ext.prf || !ext.prf.results || !ext.prf.results.first)
+        throw new Error(
+            "The security key did not return a PRF output. This could mean no " +
+                "PIN is set on the security key. Please ensure a PIN is set on " +
+                "the device and try again."
+        );
+
+    return ext.prf.results.first;
+}
+
+/**
+ * Derive a wrapping key from an already retrieved PRF output using HKDF. This is
+ * used when the PRF output was obtained during the registration ceremony and a
+ * second assertion should be avoided.
+ *
+ * @param {ArrayBuffer} secret the raw PRF output
+ * @param {String} prf_salt
+ * @returns the derived key
+ */
+async function security_key_derive_key_from_prf(secret, prf_salt) {
+    const enc = new TextEncoder();
+    const material = await CryptoAPI.importKey("raw", secret, "HKDF", false, [
+        "deriveKey",
+    ]);
+
+    return await CryptoAPI.deriveKey(
+        {
+            name: "HKDF",
+            hash: Hash,
+            salt: fromBase64(prf_salt),
+            info: enc.encode(PRFInfo),
+        },
+        material,
+        Symmetric,
+        false,
+        ["wrapKey", "unwrapKey", "encrypt", "decrypt"]
+    );
+}
+
+/**
+ * Derive a wrapping key from the PRF output of a security key using HKDF. This
+ * performs an assertion (credentials.get) to retrieve the PRF output first.
+ *
+ * @param {String} credential_id
+ * @param {String} prf_salt
+ * @returns the derived key
+ */
+async function security_key_derive_key(credential_id, prf_salt) {
+    const secret = await _security_key_prf(credential_id, prf_salt);
+    return await security_key_derive_key_from_prf(secret, prf_salt);
 }
 
 /**
@@ -386,9 +568,15 @@ export default {
     HashLength,
     IVLength,
     SaltLength,
+    PRFSaltLength,
+    PRFInfo,
     Symmetric,
     // Crypto
     supported,
+    webauthn_supported,
+    security_key_register,
+    security_key_derive_key,
+    security_key_derive_key_from_prf,
     digest,
     derive_key,
     generate_bytes,

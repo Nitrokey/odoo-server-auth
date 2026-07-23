@@ -3,60 +3,67 @@
     <t t-name="vault.AskPassDialog">
         <Dialog title="props.title" size="'md'">
             <div class="o_form_view">
-                <label for="vault_password" class="col-lg-auto col-form-label">
-                    Please enter your password or upload a keyfile:
-                </label>
+                <!-- Simple layout used e.g. when unlocking an existing key -->
+                <t t-if="!props.allowSecurityKey">
+                    <label for="vault_password" class="col-lg-auto col-form-label">
+                        Please enter your password or upload a keyfile:
+                    </label>
+                    <table class="col o_group">
+                        <tr>
+                            <td class="o_td_label text-nowrap">
+                                <label class="o_form_label" for="vault_password">
+                                    Enter your password:
+                                </label>
+                            </td>
+                            <td class="col-12">
+                                <input
+                                    type="password"
+                                    name="password"
+                                    id="vault_password"
+                                    class="form-control"
+                                    t-model="state.password"
+                                />
+                            </td>
+                        </tr>
+                        <tr t-if="props.confirm">
+                            <td class="o_td_label text-nowrap">
+                                <label class="o_form_label" for="vault_confirm">
+                                    Confirm your password:
+                                </label>
+                            </td>
+                            <td class="col-12">
+                                <input
+                                    type="password"
+                                    name="confirm"
+                                    id="vault_confirm"
+                                    class="form-control"
+                                    t-model="state.confirm"
+                                />
+                            </td>
+                        </tr>
+                        <tr>
+                            <td class="o_td_label text-nowrap">
+                                <label class="o_form_label" for="vault_keyfile">
+                                    Keyfile:
+                                </label>
+                            </td>
+                            <td class="col-12">
+                                <input
+                                    type="file"
+                                    name="keyfile"
+                                    id="vault_keyfile"
+                                    class="form-control"
+                                    t-ref="keyfileInput"
+                                />
+                            </td>
+                        </tr>
+                    </table>
+                </t>
 
-                <table class="col o_group">
-                    <tr>
-                        <td class="o_td_label text-nowrap">
-                            <label class="o_form_label" for="vault_password">
-                                Enter your password:
-                            </label>
-                        </td>
-                        <td class="col-12">
-                            <input
-                                type="password"
-                                name="password"
-                                id="vault_password"
-                                class="form-control"
-                                t-model="state.password"
-                            />
-                        </td>
-                    </tr>
-                    <tr t-if="props.confirm">
-                        <td class="o_td_label text-nowrap">
-                            <label class="o_form_label" for="vault_confirm">
-                                Confirm your password:
-                            </label>
-                        </td>
-                        <td class="col-12">
-                            <input
-                                type="password"
-                                name="confirm"
-                                id="vault_confirm"
-                                class="form-control"
-                                t-model="state.confirm"
-                            />
-                        </td>
-                    </tr>
-                    <tr>
-                        <td class="o_td_label text-nowrap">
-                            <label class="o_form_label" for="vault_keyfile">
-                                Keyfile:
-                            </label>
-                        </td>
-                        <td class="col-12">
-                            <input
-                                type="file"
-                                name="keyfile"
-                                id="vault_keyfile"
-                                class="form-control"
-                                t-ref="keyfileInput"
-                            />
-                        </td>
-                    </tr>
-                </table>
+                <t t-else="">
+                    <t t-call="vault.AskPassDialogSelector" />
+                </t>
+
                 <t t-if="state.error">
                     <div class="alert alert-danger mt-3" t-esc="state.error" />
                 </t>
@@ -66,10 +73,111 @@
                     Cancel
                 </button>
                 <button type="button" class="btn btn-primary" t-on-click="onConfirm">
-                    Enter
+                    Continue
                 </button>
             </t>
         </Dialog>
+    </t>
+
+    <t t-name="vault.AskPassDialogSelector">
+        <label class="col-lg-auto col-form-label">
+            Choose how to protect your new private key:
+        </label>
+        <div class="o_group mt-2">
+            <!-- Password -->
+            <div class="form-check">
+                <input
+                    class="form-check-input"
+                    type="radio"
+                    id="vault_method_password"
+                    value="password"
+                    t-model="state.method"
+                />
+                <label
+                    class="form-check-label o_form_label"
+                    for="vault_method_password"
+                >
+                    Password
+                </label>
+            </div>
+            <table t-if="state.method === 'password'" class="col o_group ms-4 mb-2">
+                <tr>
+                    <td class="o_td_label text-nowrap">
+                        <label class="o_form_label" for="vault_password">
+                            Enter your password:
+                        </label>
+                    </td>
+                    <td class="col-12">
+                        <input
+                            type="password"
+                            name="password"
+                            id="vault_password"
+                            class="form-control"
+                            t-model="state.password"
+                        />
+                    </td>
+                </tr>
+                <tr t-if="props.confirm">
+                    <td class="o_td_label text-nowrap">
+                        <label class="o_form_label" for="vault_confirm">
+                            Confirm your password:
+                        </label>
+                    </td>
+                    <td class="col-12">
+                        <input
+                            type="password"
+                            name="confirm"
+                            id="vault_confirm"
+                            class="form-control"
+                            t-model="state.confirm"
+                        />
+                    </td>
+                </tr>
+            </table>
+
+            <!-- Keyfile -->
+            <div class="form-check">
+                <input
+                    class="form-check-input"
+                    type="radio"
+                    id="vault_method_keyfile"
+                    value="keyfile"
+                    t-model="state.method"
+                />
+                <label class="form-check-label o_form_label" for="vault_method_keyfile">
+                    Keyfile
+                </label>
+            </div>
+            <div t-if="state.method === 'keyfile'" class="ms-4 mb-2">
+                <input
+                    type="file"
+                    name="keyfile"
+                    id="vault_keyfile"
+                    class="form-control"
+                    t-ref="keyfileInput"
+                />
+            </div>
+
+            <!-- Security key -->
+            <div class="form-check">
+                <input
+                    class="form-check-input"
+                    type="radio"
+                    id="vault_method_security_key"
+                    value="security_key"
+                    t-model="state.method"
+                />
+                <label
+                    class="form-check-label o_form_label"
+                    for="vault_method_security_key"
+                >
+                    Security key (FIDO2)
+                </label>
+            </div>
+            <div t-if="state.method === 'security_key'" class="ms-4 mb-2 text-muted">
+                Use your hardware security key
+            </div>
+        </div>
     </t>
 
     <t t-name="vault.GeneratePassDialog">

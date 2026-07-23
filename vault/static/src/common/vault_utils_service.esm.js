@@ -10,6 +10,8 @@ export class AskPassDialog extends Component {
 
     setup() {
         this.state = useState({
+            // The protection method: "password", "keyfile" or "security_key"
+            method: "password",
             password: "",
             confirm: "",
             error: "",
@@ -17,9 +19,32 @@ export class AskPassDialog extends Component {
         this.keyfileInput = useRef("keyfileInput");
     }
 
-    async onConfirm() {
+    /**
+     * Resolve the dialog using a password
+     *
+     * @private
+     */
+    async _confirmPassword() {
         const {confirm} = this.props;
         const password = this.state.password;
+        if (!password) {
+            this.state.error = _t("Missing password");
+            return;
+        }
+        if (confirm && this.state.confirm !== password) {
+            this.state.error = _t("The passwords aren't matching");
+            return;
+        }
+        this.props.onResolve({password, keyfile: null});
+        this.props.close();
+    }
+
+    /**
+     * Resolve the dialog using a keyfile
+     *
+     * @private
+     */
+    async _confirmKeyfile() {
         let keyfileContent = null;
         const input = this.keyfileInput.el;
         if (input && input.files && input.files[0]) {
@@ -27,19 +52,53 @@ export class AskPassDialog extends Component {
             const text = await file.text();
             keyfileContent = utils.fromBinary(text);
         }
-        if (!password && !keyfileContent) {
-            this.state.error = _t("Missing password");
+        if (!keyfileContent) {
+            this.state.error = _t("Please select a keyfile");
             return;
         }
-        if (confirm && password && this.state.confirm !== password) {
-            this.state.error = _t("The passwords aren't matching");
-            return;
-        }
-        this.props.onResolve({
-            password,
-            keyfile: keyfileContent,
-        });
+        this.props.onResolve({password: "", keyfile: keyfileContent});
         this.props.close();
+    }
+
+    /**
+     * Resolve the dialog using a security key. The WebAuthn ceremony happens
+     * here so an error keeps the dialog open for another attempt.
+     *
+     * @private
+     */
+    async _confirmSecurityKey() {
+        try {
+            const credential = await this.props.registerSecurityKey();
+            this.props.onResolve({
+                credential_id: credential.credential_id,
+                prf_salt: credential.prf_salt,
+                prf: credential.prf,
+            });
+            this.props.close();
+        } catch (error) {
+            // Keep the dialog open so the user can retry or use a password
+            this.state.error =
+                error && error.message
+                    ? error.message
+                    : _t("Failed to register the security key");
+        }
+    }
+
+    async onConfirm() {
+        this.state.error = "";
+
+        // When the security key isn't offered fall back to the password/keyfile
+        // handling based on what the user filled in (unlock dialog).
+        if (!this.props.allowSecurityKey) {
+            const input = this.keyfileInput.el;
+            if (!this.state.password && input && input.files && input.files[0])
+                return this._confirmKeyfile();
+            return this._confirmPassword();
+        }
+
+        if (this.state.method === "security_key") return this._confirmSecurityKey();
+        if (this.state.method === "keyfile") return this._confirmKeyfile();
+        return this._confirmPassword();
     }
 
     onCancel() {
@@ -108,6 +167,8 @@ export const vaultUtilsService = {
             const props = {
                 title,
                 confirm: Boolean(options.confirm),
+                allowSecurityKey: Boolean(options.allowSecurityKey),
+                registerSecurityKey: options.registerSecurityKey,
             };
             return new Promise((resolve) => {
                 dialog.add(AskPassDialog, {
