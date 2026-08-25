@@ -48,6 +48,7 @@ class VaultEntry(models.Model):
     )
     uuid = fields.Char(default=lambda self: uuid4(), required=True, copy=False)
     name = fields.Char(required=True)
+    username = fields.Char("User Name")
     url = fields.Char()
     note = fields.Text()
     tags = fields.Many2many("vault.tag")

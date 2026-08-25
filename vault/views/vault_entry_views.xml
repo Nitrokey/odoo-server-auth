@@ -62,6 +62,7 @@
                             />
                             <field name="complete_name" invisible="1" />
                             <field name="name" />
+                            <field name="username" />
                             <field name="url" widget="url" />
                             <field name="tags" widget="many2many_tags" />
                         </group>
@@ -85,7 +86,7 @@
                                     <field name="entry_id" column_invisible="1" />
                                     <field name="iv" column_invisible="1" />
                                     <field name="master_key" column_invisible="1" />
-                                    <field name="name" />
+                                    <field name="name_id" options="{'no_open': true}" />
                                     <field
                                         name="value"
                                         widget="vault_field"
@@ -101,7 +102,7 @@
                                     <templates>
                                         <t t-name="card">
                                             <h2>
-                                                <field name="name" />
+                                                <field name="name_id" />
                                             </h2>
                                             <field
                                                 name="value"
@@ -121,7 +122,7 @@
                                             <field name="master_key" invisible="1" />
                                         </group>
                                         <h2>
-                                            <field name="name" />
+                                            <field name="name_id" />
                                         </h2>
                                         <field
                                             name="value"

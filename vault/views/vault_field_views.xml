@@ -10,7 +10,7 @@
                         <field name="entry_id" invisible="1" />
                         <field name="iv" invisible="1" />
                         <field name="master_key" invisible="1" />
-                        <field name="name" />
+                        <field name="name_id" />
                         <field name="value" widget="vault" type="field_type" />
                         <field name="write_date" />
                     </group>
@@ -27,7 +27,7 @@
                 <field name="entry_id" column_invisible="1" />
                 <field name="iv" column_invisible="1" />
                 <field name="master_key" column_invisible="1" />
-                <field name="name" />
+                <field name="name_id" options="{'no_open': true}" />
                 <field name="value" widget="vault" type="field_type" />
                 <field name="write_date" />
             </list>

@@ -3,6 +3,7 @@ access_vault,access_vault,model_vault,base.group_user,1,1,1,1
 access_vault_entry,access_vault_entry,model_vault_entry,base.group_user,1,1,1,1
 access_vault_export_wizard,access_vault_export_wizard,model_vault_export_wizard,base.group_user,1,1,1,1
 access_vault_field,access_vault_field,model_vault_field,base.group_user,1,1,1,1
+access_vault_field_name,access_vault_field_name,model_vault_field_name,base.group_user,1,1,1,1
 access_vault_file,access_vault_file,model_vault_file,base.group_user,1,1,1,1
 access_vault_import_wizard,access_vault_import_wizard,model_vault_import_wizard,base.group_user,1,1,1,1
 access_vault_import_wizard_path,access_vault_import_wizard_path,model_vault_import_wizard_path,base.group_user,1,1,1,1

@@ -133,8 +133,13 @@ class TestController(BaseCommon):
             entry = self.env["vault.entry"].create(
                 {"name": "Test Entry", "vault_id": vault.id}
             )
+            field_name = self.env["vault.field.name"].create({"name": "Test"})
             field = self.env["vault.field"].create(
-                {"entry_id": entry.id, "name": "Test", "value": "hello"}
+                {
+                    "entry_id": entry.id,
+                    "name_id": field_name.id,
+                    "value": "hello",
+                }
             )
             file = self.env["vault.file"].create(
                 {"entry_id": entry.id, "name": "Test", "value": b"hello"}

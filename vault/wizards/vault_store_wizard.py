@@ -35,13 +35,16 @@ class VaultStoreWizard(models.TransientModel):
     def action_store(self):
         self.ensure_one()
         try:
-            self.env[self.model].create(
-                {
-                    "entry_id": self.entry_id.id,
-                    "name": self.name,
-                    "iv": self.iv,
-                    "value": self.secret,
-                }
-            )
+            vals = {
+                "entry_id": self.entry_id.id,
+                "iv": self.iv,
+                "value": self.secret,
+            }
+            if self.model == "vault.field":
+                name = self.env["vault.field.name"]._get_or_create(self.name)
+                vals["name_id"] = name.id
+            else:
+                vals["name"] = self.name
+            self.env[self.model].create(vals)
         except Exception as e:
             _logger.exception(e)

@@ -66,8 +66,16 @@ class ImportWizard(models.TransientModel):
         # Only copy specific fields
         vals = {f: data[f] for f in ["name", "iv", "value"]}
 
+        # Secrets (vault.field) reference the managed name catalog instead of
+        # storing free text. Resolve/create the matching name (de-duplicated).
+        if model._name == "vault.field":
+            name = self.env["vault.field.name"]._get_or_create(vals.pop("name"))
+            vals["name_id"] = name.id
+            domain = [("entry_id", "=", entry.id), ("name_id", "=", name.id)]
+        else:
+            domain = [("entry_id", "=", entry.id), ("name", "=", data["name"])]
+
         # Update already existing records
-        domain = [("entry_id", "=", entry.id), ("name", "=", data["name"])]
         rec = model.search(domain)
         if rec:
             rec.write(vals)
@@ -91,7 +99,9 @@ class ImportWizard(models.TransientModel):
                 rec = rec.search(domain, limit=1)
 
             # If record not found create a new one
-            vals = {f: entry.get(f) for f in ["name", "note", "url", "uuid"]}
+            vals = {
+                f: entry.get(f) for f in ["name", "username", "note", "url", "uuid"]
+            }
             if not rec:
                 rec = rec.create(
                     {"vault_id": self.vault_id.id, "parent_id": parent.id, **vals}

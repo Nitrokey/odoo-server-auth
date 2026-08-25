@@ -11,6 +11,14 @@ from odoo.addons.base.tests.common import BaseCommon
 _logger = logging.getLogger(__name__)
 
 
+def _writable_vals(obj):
+    """Return a writable vals dict for the given record. vault.field has a
+    readonly (related) name, so we write its value instead of the name."""
+    if obj._name == "vault.field":
+        return {"value": "Owned"}
+    return {"name": "Owned"}
+
+
 class TestAccessRights(BaseCommon):
     @classmethod
     def setUpClass(cls):
@@ -23,8 +31,13 @@ class TestAccessRights(BaseCommon):
         cls.entry = cls.env["vault.entry"].create(
             {"vault_id": cls.vault.id, "name": "Entry"}
         )
+        cls.field_name = cls.env["vault.field.name"].create({"name": "Field"})
         cls.field = cls.env["vault.field"].create(
-            {"entry_id": cls.entry.id, "name": "Field", "value": "Value"}
+            {
+                "entry_id": cls.entry.id,
+                "name_id": cls.field_name.id,
+                "value": "Value",
+            }
         )
         cls.vault.right_ids.write({"key": "Owner"})
 
@@ -58,11 +71,11 @@ class TestAccessRights(BaseCommon):
     def test_owner_access(self):
         # The owner can always access despite the permissions
         for obj in [self.field, self.entry, self.vault]:
-            obj.name = "Owned"
+            obj.write(_writable_vals(obj))
 
             right = self.vault.right_ids
             right.perm_write = False
-            obj.name = "Owned"
+            obj.write(_writable_vals(obj))
 
             right.perm_delete = False
             obj.unlink()
@@ -87,7 +100,7 @@ class TestAccessRights(BaseCommon):
                 self.assertTrue(obj.with_user(self.user).read())
 
             with self.assertRaises(AccessError):
-                obj.with_user(self.user).name = "Owned"
+                obj.with_user(self.user).write(_writable_vals(obj))
 
             with self.assertRaises(AccessError):
                 obj.with_user(self.user).unlink()
@@ -107,7 +120,7 @@ class TestAccessRights(BaseCommon):
             self.assertTrue(obj.with_user(self.user).read())
 
             with self.assertRaises(AccessError):
-                obj.with_user(self.user).name = "Owned"
+                obj.with_user(self.user).write(_writable_vals(obj))
 
             with self.assertRaises(AccessError):
                 obj.with_user(self.user).unlink()
@@ -125,7 +138,7 @@ class TestAccessRights(BaseCommon):
         for obj in [self.field, self.entry, self.vault]:
             self.assertTrue(obj.with_user(self.user).read())
 
-            obj.with_user(self.user).name = "Owned"
+            obj.with_user(self.user).write(_writable_vals(obj))
             obj.with_user(self.user).unlink()
 
     def test_owner_share(self):

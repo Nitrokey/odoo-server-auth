@@ -10,6 +10,7 @@ from . import (
     vault,
     vault_entry,
     vault_field,
+    vault_field_name,
     vault_file,
     vault_inbox,
     vault_inbox_log,

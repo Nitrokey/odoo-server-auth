@@ -54,6 +54,13 @@
         sequence="40"
     />
     <menuitem
+        id="menu_vault_field_name"
+        groups="base.group_user"
+        parent="vault.menu_vault"
+        action="action_vault_field_name"
+        sequence="45"
+    />
+    <menuitem
         id="menu_vault_right"
         groups="base.group_user"
         parent="vault.menu_vault"

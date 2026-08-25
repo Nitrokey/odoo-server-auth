@@ -14,4 +14,18 @@ class VaultField(models.Model):
     _order = "name"
     _inherit = ["vault.abstract.field", "vault.abstract"]
 
+    name_id = fields.Many2one(
+        "vault.field.name",
+        "Name",
+        required=True,
+        ondelete="restrict",
+    )
+    # Override the free-text name inherited from vault.abstract.field with a
+    # stored mirror of the selected catalog entry. This keeps _order, logging
+    # and the JSON export working while the name is managed via name_id.
+    name = fields.Char(
+        related="name_id.name",
+        store=True,
+        readonly=True,
+    )
     value = fields.Char(required=True)

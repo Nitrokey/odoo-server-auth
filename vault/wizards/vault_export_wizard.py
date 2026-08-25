@@ -63,6 +63,7 @@ class ExportWizard(models.TransientModel):
         return {
             "uuid": entry.uuid,
             "name": entry.name,
+            "username": entry.username,
             "note": entry.note,
             "url": entry.url,
             "fields": entry.field_ids.mapped(self._export_field),
