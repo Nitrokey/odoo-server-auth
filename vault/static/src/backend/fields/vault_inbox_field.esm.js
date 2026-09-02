@@ -36,7 +36,7 @@ export class VaultInboxField extends VaultInboxMixin(VaultField) {
 
         if (!iv || !wrapped_key) return false;
 
-        const key = await this.vault.unwrap(wrapped_key);
+        const key = await this.vault.unwrap_master_key(wrapped_key);
         return await this.vault_utils.sym_decrypt(key, data, iv);
     }
 }

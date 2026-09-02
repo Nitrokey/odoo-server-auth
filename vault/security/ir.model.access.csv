@@ -10,6 +10,8 @@ access_vault_inbox,access_vault_inbox,model_vault_inbox,base.group_user,1,1,1,1
 access_vault_inbox_log,access_vault_inbox_log,model_vault_inbox_log,base.group_user,1,1,1,1
 access_vault_log,access_vault_log,model_vault_log,base.group_user,1,0,0,0
 access_vault_right,access_vault_right,model_vault_right,base.group_user,1,1,1,1
+access_vault_right_key,access_vault_right_key,model_vault_right_key,base.group_user,1,1,1,1
+access_vault_inbox_wrap,access_vault_inbox_wrap,model_vault_inbox_wrap,base.group_user,1,1,1,1
 access_vault_send_wizard,access_vault_send_wizard,model_vault_send_wizard,base.group_user,1,1,1,1
 access_vault_store_wizard,access_vault_store_wizard,model_vault_store_wizard,base.group_user,1,1,1,1
 access_vault_tag,access_vault_tag,model_vault_tag,base.group_user,1,1,1,1

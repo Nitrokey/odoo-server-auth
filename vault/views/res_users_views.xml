@@ -4,7 +4,8 @@
         <field name="model">res.users.key</field>
         <field name="arch" type="xml">
             <list editable="bottom">
-                <field name="current" readonly="1" />
+                <field name="label" />
+                <field name="key_type" readonly="1" />
                 <field name="fingerprint" readonly="1" />
             </list>
         </field>
@@ -36,23 +37,17 @@
                     <field name="keys" />
                 </sheet>
                 <footer>
+                    <button name="vault_add_key" string="Add key" class="btn-primary" />
                     <button
-                        name="vault_generate_key"
-                        string="New private key"
-                        class="btn-primary"
+                        name="vault_remove_key"
+                        string="Remove key"
+                        class="btn-secondary"
                     />
                     <button
                         name="action_new_inbox_token"
                         type="object"
                         string="New inbox link"
                         class="btn-primary"
-                    />
-                    <button
-                        name="action_invalidate_key"
-                        type="object"
-                        string="Invalidate private key"
-                        class="btn-secondary"
-                        confirm="You will loose access to all vaults and your inbox. Do you want to continue?"
                     />
                     <button special="cancel" string="Cancel" class="btn-secondary" />
                 </footer>
@@ -61,7 +56,7 @@
     </record>
 
     <record id="action_res_users_keys" model="ir.actions.act_window">
-        <field name="name">Manage my keys</field>
+        <field name="name">Vault Keys</field>
         <field name="type">ir.actions.act_window</field>
         <field name="res_model">res.users</field>
         <field name="target">new</field>

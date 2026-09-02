@@ -4,7 +4,8 @@
 import logging
 from uuid import uuid4
 
-from odoo import api, fields, models
+from odoo import _, api, fields, models
+from odoo.exceptions import ValidationError
 
 _logger = logging.getLogger(__name__)
 
@@ -12,12 +13,7 @@ _logger = logging.getLogger(__name__)
 class ResUsers(models.Model):
     _inherit = "res.users"
 
-    active_key = fields.Many2one(
-        "res.users.key",
-        compute="_compute_active_key",
-        store=False,
-    )
-    keys = fields.One2many("res.users.key", "user_id", readonly=True)
+    keys = fields.One2many("res.users.key", "user_id")
     vault_right_ids = fields.One2many("vault.right", "user_id", readonly=True)
     inbox_ids = fields.One2many("vault.inbox", "user_id")
     inbox_enabled = fields.Boolean(default=True)
@@ -39,11 +35,9 @@ class ResUsers(models.Model):
         for rec in self:
             rec.vault_allowed_key_types = allowed
 
-    @api.depends("keys", "keys.current")
-    def _compute_active_key(self):
-        for rec in self:
-            keys = rec.sudo().keys.filtered("current")
-            rec.active_key = keys[0] if keys else None
+    def _get_public_keys(self):
+        self.ensure_one()
+        return [{"uuid": key.uuid, "public": key.public} for key in self.sudo().keys]
 
     @api.depends("inbox_token")
     def _compute_inbox_link(self):
@@ -64,35 +58,46 @@ class ResUsers(models.Model):
         self.sudo().inbox_token = uuid4()
         return self.action_get_vault()
 
-    def action_invalidate_key(self):
-        """Disable the current key and remove all accesses to the vaults"""
+    def remove_vault_key(self, uuid):
+        """Remove a single key of the user. The caller (browser) is responsible
+        for rotating the master keys of the affected vaults before removing the
+        key. Removing the last key is not allowed."""
         self.ensure_one()
-        self.keys.write({"current": False})
-        self.vault_right_ids.sudo().unlink()
-        self.inbox_ids.unlink()
+        keys = self.sudo().keys
+        if len(keys) <= 1:
+            raise ValidationError(_("You can't remove your last key"))
+
+        key = keys.filtered(lambda k: k.uuid == uuid)
+        if not key:
+            raise ValidationError(_("Unknown key"))
+
+        key.unlink()
         self.env["vault"].search([])._compute_access()
-        return self.action_get_vault()
+        return True
 
     @api.model
     def find_user_of_inbox(self, token):
         return self.search([("inbox_token", "=", token), ("inbox_enabled", "=", True)])
 
+    def _key_values(self, key):
+        return {
+            "iterations": key.iterations,
+            "iv": key.iv,
+            "private": key.private,
+            "public": key.public,
+            "salt": key.salt,
+            "uuid": key.uuid,
+            "version": key.version,
+            "key_type": key.key_type,
+            "credential_id": key.credential_id,
+            "prf_salt": key.prf_salt,
+            "label": key.label,
+        }
+
     def get_vault_keys(self):
         self.ensure_one()
 
-        if not self.active_key:
-            return {"allowed_key_types": self.vault_allowed_key_types}
-
         return {
-            "iterations": self.active_key.iterations,
-            "iv": self.active_key.iv,
-            "private": self.active_key.private,
-            "public": self.active_key.public,
-            "salt": self.active_key.salt,
-            "uuid": self.active_key.uuid,
-            "version": self.active_key.version,
-            "key_type": self.active_key.key_type,
-            "credential_id": self.active_key.credential_id,
-            "prf_salt": self.active_key.prf_salt,
+            "keys": [self._key_values(key) for key in self.sudo().keys],
             "allowed_key_types": self.vault_allowed_key_types,
         }

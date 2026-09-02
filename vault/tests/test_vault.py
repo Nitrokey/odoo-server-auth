@@ -2,6 +2,7 @@
 # Copyright 2022 Tecnativa - Víctor Martínez
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
+import json
 import logging
 from datetime import datetime
 
@@ -43,11 +44,24 @@ class TestVault(BaseCommon):
         self.assertNotIn("default_entry_id", values["context"])
 
     def test_master_key(self):
-        right = self.vault.right_ids
-        self.assertEqual(self.vault.master_key, right.master_key)
+        key = self.env["res.users.key"].create(
+            {
+                "user_id": self.vault.user_id.id,
+                "public": "a public key",
+                "salt": "42",
+                "iv": "2424",
+                "iterations": 4000,
+                "private": "24",
+            }
+        )
 
-        self.vault.master_key = "test"
-        self.assertEqual(right.key, "test")
+        # The master key is stored wrapped per key of the user
+        self.vault.master_key = json.dumps({key.uuid: "test"})
+        wrapped = self.vault.right_ids.wrapped_key_ids.filtered(
+            lambda w: w.user_key_id == key
+        )
+        self.assertEqual(wrapped.key, "test")
+        self.assertEqual(json.loads(self.vault.master_key), {key.uuid: "test"})
 
     def test_share_public_key(self):
         key = self.env["res.users.key"].create(
@@ -61,8 +75,12 @@ class TestVault(BaseCommon):
             }
         )
 
-        expected = {"user": 1, "public": key.public}
-        self.assertIn(expected, self.vault.share_public_keys())
+        shared = self.vault.share_public_keys()
+        self.assertTrue(shared)
+        self.assertIn(
+            {"uuid": key.uuid, "public": key.public},
+            shared[0]["public_keys"],
+        )
 
     def test_keys(self):
         key = self.env["res.users.key"].create(
@@ -98,30 +116,28 @@ class TestVault(BaseCommon):
         uuid = model.store(4000, "iv", "private", "public", "salt", 42)
         rec = model.search([("uuid", "=", uuid)])
         self.assertEqual(rec.private, "private")
-        self.assertTrue(rec.current)
 
         # Don't store the same again
         uuid = model.store(4000, "iv", "private", "public", "salt", 42)
         self.assertFalse(uuid)
 
-        # Store a new one and disable the old one
+        # Store a new one in addition to the existing one
         uuid = model.store(4000, "iv", "more private", "public", "salt", 42)
-        self.assertFalse(rec.current)
+        self.assertEqual(len(self.env.user.keys), 2)
 
         rec = model.search([("uuid", "=", uuid)])
         self.assertEqual(rec.private, "more private")
-        self.assertTrue(rec.current)
 
-        # Try to extract the public key again
+        # Try to extract the public keys again
         user_id = self.env["res.users"].search([], limit=1, order="id DESC").id
-        public = model.extract_public_key(user_id + 1)
+        public = model.extract_public_keys(user_id + 1)
         self.assertFalse(public)
-        public = model.extract_public_key(self.env.uid)
-        self.assertEqual(public, "public")
+        public = model.extract_public_keys(self.env.uid)
+        self.assertIn("public", public)
 
     def test_vault_keys(self):
-        keys = self.env.user.get_vault_keys()
-        self.assertEqual(keys, {})
+        result = self.env.user.get_vault_keys()
+        self.assertEqual(result["keys"], [])
 
         data = {
             "user_id": self.env.user.id,

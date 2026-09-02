@@ -20,7 +20,7 @@ class ResUsersKey(models.Model):
 
     user_id = fields.Many2one("res.users", required=True)
     uuid = fields.Char(default=lambda self: uuid4(), required=True, readonly=True)
-    current = fields.Boolean(default=True, readonly=True)
+    label = fields.Char()
     fingerprint = fields.Char(compute="_compute_fingerprint", store=True)
     public = fields.Char(required=True, readonly=True)
     salt = fields.Char(required=True, readonly=True)
@@ -58,6 +58,7 @@ class ResUsersKey(models.Model):
         key_type="password",
         credential_id=None,
         prf_salt=None,
+        label=None,
     ):
         return {
             "iterations": iterations,
@@ -66,11 +67,11 @@ class ResUsersKey(models.Model):
             "public": public,
             "salt": salt,
             "user_id": self.env.uid,
-            "current": True,
             "version": version,
             "key_type": key_type,
             "credential_id": credential_id,
             "prf_salt": prf_salt,
+            "label": label,
         }
 
     def store(
@@ -84,6 +85,7 @@ class ResUsersKey(models.Model):
         key_type="password",
         credential_id=None,
         prf_salt=None,
+        label=None,
     ):
         if not all(isinstance(x, str) and x for x in [public, private, iv, salt]):
             raise ValidationError(_("Invalid parameter"))
@@ -118,9 +120,6 @@ class ResUsersKey(models.Model):
         ]
         key = self.search(domain)
         if not key:
-            # Disable all current keys
-            self.env.user.keys.write({"current": False})
-
             rec = self.create(
                 self._prepare_values(
                     iterations,
@@ -132,12 +131,13 @@ class ResUsersKey(models.Model):
                     key_type,
                     credential_id,
                     prf_salt,
+                    label,
                 )
             )
             return rec.uuid
 
         return False
 
-    def extract_public_key(self, user):
-        user = self.sudo().search([("user_id", "=", user), ("current", "=", True)])
-        return user.public or None
+    def extract_public_keys(self, user):
+        keys = self.sudo().search([("user_id", "=", user)])
+        return keys.mapped("public")

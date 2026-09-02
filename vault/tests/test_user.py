@@ -35,31 +35,28 @@ class TestShare(BaseCommon):
 
         self.assertEqual(action.id, self.env["res.users"].action_get_vault()["id"])
 
-    def test_invalidation(self):
-        self.env["res.users.key"].store(
-            40000, "invalid", "invalid", "invalid", "invalid", 42
+    def test_remove_key(self):
+        # A single key can't be removed
+        first = self.env["res.users.key"].store(
+            40000, "iv", "private", "public", "salt", 42
         )
-        self.assertTrue(self.env.user.keys.filtered("current"))
+        self.assertTrue(self.env.user.keys)
+        with self.assertRaises(ValidationError):
+            self.env.user.remove_vault_key(first)
 
-        vault = self.env["vault"].create({"name": "Test"})
-        self.assertTrue(vault.right_ids)
-
-        inbox = self.env["vault.inbox"].create(
-            {
-                "name": "Inbox Test",
-                "secret": "secret",
-                "iv": "iv",
-                "user_id": self.env.uid,
-                "key": "key",
-                "secret_file": "",
-                "filename": "",
-            }
+        # Add a second key and remove the first one
+        second = self.env["res.users.key"].store(
+            40000, "iv", "more private", "public2", "salt", 42
         )
+        self.assertEqual(len(self.env.user.keys), 2)
 
-        self.env.user.action_invalidate_key()
-        self.assertFalse(self.env.user.keys.filtered("current"))
-        self.assertFalse(inbox.exists())
-        self.assertFalse(vault.right_ids.exists())
+        self.env.user.remove_vault_key(first)
+        self.assertEqual(len(self.env.user.keys), 1)
+        self.assertEqual(self.env.user.keys.uuid, second)
+
+        # Removing an unknown key raises
+        with self.assertRaises(ValidationError):
+            self.env.user.remove_vault_key("unknown")
 
     def test_store_security_key(self):
         uuid = self.env["res.users.key"].store(
@@ -72,18 +69,22 @@ class TestShare(BaseCommon):
             key_type="security_key",
             credential_id="credential",
             prf_salt="prf_salt",
+            label="My Nitrokey",
         )
         self.assertTrue(uuid)
 
-        key = self.env.user.active_key
+        key = self.env.user.keys.filtered(lambda k: k.uuid == uuid)
         self.assertEqual(key.key_type, "security_key")
         self.assertEqual(key.credential_id, "credential")
         self.assertEqual(key.prf_salt, "prf_salt")
+        self.assertEqual(key.label, "My Nitrokey")
 
-        keys = self.env.user.get_vault_keys()
-        self.assertEqual(keys["key_type"], "security_key")
-        self.assertEqual(keys["credential_id"], "credential")
-        self.assertEqual(keys["prf_salt"], "prf_salt")
+        result = self.env.user.get_vault_keys()
+        stored = result["keys"][0]
+        self.assertEqual(stored["key_type"], "security_key")
+        self.assertEqual(stored["credential_id"], "credential")
+        self.assertEqual(stored["prf_salt"], "prf_salt")
+        self.assertEqual(stored["label"], "My Nitrokey")
 
     def test_store_security_key_invalid(self):
         # Missing credential_id and prf_salt

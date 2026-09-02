@@ -26,7 +26,6 @@ class TestController(BaseCommon):
             {"login": "test", "email": "test@test", "name": "test"}
         )
         cls.user.inbox_token = "42"
-        cls.user.keys.current = False
         cls.key = cls.env["res.users.key"].create(
             {
                 "user_id": cls.user.id,
@@ -35,14 +34,13 @@ class TestController(BaseCommon):
                 "iv": "2424",
                 "iterations": 4000,
                 "private": "24",
-                "current": True,
             }
         )
         cls.inbox = cls.env["vault.inbox"].create(
             {
                 "user_id": cls.user.id,
                 "name": "Inbox",
-                "key": "4",
+                "wrapped_key_ids": [(0, 0, {"user_key_id": cls.key.id, "key": "4"})],
                 "iv": "1",
                 "secret": "old secret",
                 "secret_file": "old file",
@@ -66,7 +64,7 @@ class TestController(BaseCommon):
 
             response = load(self.controller.vault_inbox(self.user.inbox_token))
             self.assertNotIn("error", response)
-            self.assertEqual(response["public"], self.user.active_key.public)
+            self.assertEqual(response["publics"], self.user._get_public_keys())
 
             # Try to eliminate each error step by step
             request_mock.httprequest.method = "POST"
@@ -92,7 +90,9 @@ class TestController(BaseCommon):
             self.assertEqual(self.inbox.secret_file, b"old file")
 
             # Store something successfully
-            request_mock.params.update({"iv": "iv", "key": "key"})
+            request_mock.params.update(
+                {"iv": "iv", "keys": json.dumps({self.key.uuid: "key"})}
+            )
             response = load(self.controller.vault_inbox(self.inbox.token))
             self.assertNotIn("error", response)
             self.assertEqual(self.inbox.secret, "secret")
@@ -139,23 +139,40 @@ class TestController(BaseCommon):
             file = self.env["vault.file"].create(
                 {"entry_id": entry.id, "name": "Test", "value": b"hello"}
             )
-            right.write({"key": "invalid"})
 
             self.controller.vault_replace(None)
             self.assertEqual(field.value, "hello")
             self.assertEqual(file.value, b"hello")
+
+            key = self.env["res.users.key"].create(
+                {
+                    "user_id": self.env.uid,
+                    "public": "public",
+                    "salt": "42",
+                    "iv": "2424",
+                    "iterations": 4000,
+                    "private": "24",
+                }
+            )
 
             vault.reencrypt_required = True
             self.controller.vault_replace(
                 [
                     {"model": field._name, "id": field.id, "value": "test"},
                     {"model": file._name, "id": file.id, "value": "test"},
-                    {"model": right._name, "id": right.id, "key": "changed"},
+                    {
+                        "model": right._name,
+                        "id": right.id,
+                        "keys": {key.uuid: "changed"},
+                    },
                 ]
             )
             self.assertEqual(field.value, "test")
             self.assertEqual(file.value, b"test")
-            self.assertEqual(right.key, "changed")
+            self.assertEqual(
+                right.wrapped_key_ids.filtered(lambda w: w.user_key_id == key).key,
+                "changed",
+            )
             self.assertFalse(vault.reencrypt_required)
 
     @mute_logger("odoo.sql_db")
@@ -179,39 +196,96 @@ class TestController(BaseCommon):
         with MockRequest(self.env):
             self.assertFalse(self.controller.vault_get_right_keys())
 
+            # A key of the current user is required for a wrapping
+            key = self.env["res.users.key"].create(
+                {
+                    "user_id": self.env.uid,
+                    "public": "public",
+                    "salt": "42",
+                    "iv": "2424",
+                    "iterations": 4000,
+                    "private": "24",
+                }
+            )
+
             # New vault with user as owner and only right
             vault = self.env["vault"].create({"name": "Vault"})
+            vault.right_ids.wrapped_key_ids = [
+                (0, 0, {"user_key_id": key.id, "key": "wrapped"})
+            ]
 
             response = self.controller.vault_get_right_keys()
-            self.assertEqual(response, {vault.uuid: vault.right_ids.key})
+            self.assertEqual(response, {vault.uuid: {key.uuid: "wrapped"}})
 
     @mute_logger("odoo.sql_db")
     def test_vault_store_right_key(self):
         with MockRequest(self.env):
+            key = self.env["res.users.key"].create(
+                {
+                    "user_id": self.env.uid,
+                    "public": "public",
+                    "salt": "42",
+                    "iv": "2424",
+                    "iterations": 4000,
+                    "private": "24",
+                }
+            )
             vault = self.env["vault"].create({"name": "Vault"})
 
             self.controller.vault_store_right_keys(None)
 
-            self.controller.vault_store_right_keys({vault.uuid: "new key"})
-            self.assertEqual(vault.right_ids.key, "new key")
+            self.controller.vault_store_right_keys({vault.uuid: {key.uuid: "new key"}})
+            self.assertEqual(
+                vault.right_ids.wrapped_key_ids.filtered(
+                    lambda w: w.user_key_id == key
+                ).key,
+                "new key",
+            )
 
     @mute_logger("odoo.sql_db")
     def test_vault_inbox_keys(self):
         with MockRequest(self.env):
             self.assertFalse(self.controller.vault_get_inbox())
 
+            key = self.env["res.users.key"].create(
+                {
+                    "user_id": self.env.uid,
+                    "public": "public",
+                    "salt": "42",
+                    "iv": "2424",
+                    "iterations": 4000,
+                    "private": "24",
+                }
+            )
             inbox = self.inbox.copy({"user_id": self.env.uid})
+            inbox.wrapped_key_ids = [
+                (5, 0, 0),
+                (0, 0, {"user_key_id": key.id, "key": "4"}),
+            ]
 
             response = self.controller.vault_get_inbox()
-            self.assertEqual(response, {inbox.token: inbox.key})
+            self.assertEqual(response, {inbox.token: {key.uuid: "4"}})
 
     @mute_logger("odoo.sql_db")
     def test_vault_store_inbox_key(self):
         with MockRequest(self.env):
+            key = self.env["res.users.key"].create(
+                {
+                    "user_id": self.env.uid,
+                    "public": "public",
+                    "salt": "42",
+                    "iv": "2424",
+                    "iterations": 4000,
+                    "private": "24",
+                }
+            )
             inbox = self.inbox.copy({"user_id": self.env.uid})
             inbox.user_id = self.env.user
 
             self.controller.vault_store_inbox(None)
 
-            self.controller.vault_store_inbox({inbox.token: "new key"})
-            self.assertEqual(inbox.key, "new key")
+            self.controller.vault_store_inbox({inbox.token: {key.uuid: "new key"}})
+            self.assertEqual(
+                inbox.wrapped_key_ids.filtered(lambda w: w.user_key_id == key).key,
+                "new key",
+            )

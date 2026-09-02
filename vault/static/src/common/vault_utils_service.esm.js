@@ -14,6 +14,7 @@ export class AskPassDialog extends Component {
             method: "password",
             password: "",
             confirm: "",
+            label: "",
             error: "",
         });
         this.keyfileInput = useRef("keyfileInput");
@@ -35,7 +36,7 @@ export class AskPassDialog extends Component {
             this.state.error = _t("The passwords aren't matching");
             return;
         }
-        this.props.onResolve({password, keyfile: null});
+        this.props.onResolve({password, keyfile: null, label: this.state.label});
         this.props.close();
     }
 
@@ -56,7 +57,11 @@ export class AskPassDialog extends Component {
             this.state.error = _t("Please select a keyfile");
             return;
         }
-        this.props.onResolve({password: "", keyfile: keyfileContent});
+        this.props.onResolve({
+            password: "",
+            keyfile: keyfileContent,
+            label: this.state.label,
+        });
         this.props.close();
     }
 
@@ -73,6 +78,7 @@ export class AskPassDialog extends Component {
                 credential_id: credential.credential_id,
                 prf_salt: credential.prf_salt,
                 prf: credential.prf,
+                label: this.state.label,
             });
             this.props.close();
         } catch (error) {
