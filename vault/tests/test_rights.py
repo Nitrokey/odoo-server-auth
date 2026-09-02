@@ -1,6 +1,7 @@
 # © 2021 Florian Kantelberg - initOS GmbH
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
+import json
 import logging
 
 from odoo.exceptions import AccessError
@@ -26,7 +27,19 @@ class TestAccessRights(BaseCommon):
         cls.field = cls.env["vault.field"].create(
             {"entry_id": cls.entry.id, "name": "Field", "value": "Value"}
         )
-        cls.vault.right_ids.write({"key": "Owner"})
+        cls.owner_key = cls.env["res.users.key"].create(
+            {
+                "user_id": cls.vault.user_id.id,
+                "public": "owner public",
+                "salt": "42",
+                "iv": "2424",
+                "iterations": 4000,
+                "private": "24",
+            }
+        )
+        cls.vault.right_ids.wrapped_key_ids = [
+            (0, 0, {"user_key_id": cls.owner_key.id, "key": "Owner"})
+        ]
 
     def test_vault_reencrypt(self):
         right = self.env["vault.right"].create(
@@ -41,7 +54,7 @@ class TestAccessRights(BaseCommon):
         right.unlink()
         assert self.vault.reencrypt_required
 
-    def test_public_key(self):
+    def test_public_keys(self):
         key = self.env["res.users.key"].create(
             {
                 "user_id": self.vault.user_id.id,
@@ -52,8 +65,8 @@ class TestAccessRights(BaseCommon):
                 "private": "24",
             }
         )
-        self.assertTrue(self.vault.right_ids.public_key)
-        self.assertEqual(key.public, self.vault.right_ids.public_key)
+        publics = json.loads(self.vault.right_ids.public_keys)
+        self.assertIn({"uuid": key.uuid, "public": key.public}, publics)
 
     def test_owner_access(self):
         # The owner can always access despite the permissions

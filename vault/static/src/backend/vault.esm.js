@@ -116,6 +116,7 @@ const vaultService = {
                     credential_id: askpass.credential_id,
                     prf_salt: askpass.prf_salt,
                     prf: askpass.prf,
+                    label: askpass.label || null,
                 };
             }
 
@@ -125,7 +126,12 @@ const vaultService = {
                     vault_utils.toBinary(askpass.keyfile)
                 );
             }
-            return {password, credential_id: null, prf_salt: null};
+            return {
+                password,
+                credential_id: null,
+                prf_salt: null,
+                label: askpass.label || null,
+            };
         }
 
         class Vault {
@@ -304,12 +310,12 @@ const vaultService = {
             /**
              * Check if the keys exist in the database
              *
-             * @returns the uuid of the currently active keys or false
+             * @returns the uuid of a usable key or false
              */
             async _check_database() {
                 const params = await rpc("/vault/keys/get");
-                if (Object.keys(params).length && params.uuid) return params.uuid;
-                return false;
+                const keys = params.keys || [];
+                return keys.length ? keys[0].uuid : false;
             }
 
             /**
@@ -386,6 +392,7 @@ const vaultService = {
                 let prf = null;
                 let pass = null;
                 let password = opts.password;
+                let label = opts.label || null;
 
                 // Ask the user how to protect the key unless the password was
                 // provided explicitly (e.g. the silent key migration).
@@ -399,6 +406,7 @@ const vaultService = {
                     prf_salt = auth.prf_salt;
                     prf = auth.prf;
                     password = auth.password;
+                    label = auth.label;
                 }
 
                 const key_type = credential_id ? "security_key" : "password";
@@ -448,6 +456,7 @@ const vaultService = {
                     key_type: key_type,
                     credential_id: credential_id,
                     prf_salt: prf_salt,
+                    label: label,
                 };
 
                 // Export to the server
@@ -469,57 +478,68 @@ const vaultService = {
              */
             async _import_from_database() {
                 const params = await rpc("/vault/keys/get");
-                if (Object.keys(params).length && params.uuid) {
-                    this.salt = vault_utils.fromBase64(params.salt);
-                    this.iterations = params.iterations;
-                    this.version = params.version || 0;
-                    this.key_type = params.key_type || "password";
+                const keys = params.keys || [];
+                if (!keys.length) return false;
 
-                    let pass = null;
-                    let raw_password = null;
+                // Select the key to unlock with. Prefer a security key the
+                // browser can use, otherwise fall back to a password protected
+                // key so the user only has to enter a password.
+                let selected = keys.find(
+                    (k) =>
+                        k.key_type === "security_key" &&
+                        vault_utils.webauthn_supported()
+                );
+                if (!selected)
+                    selected = keys.find((k) => k.key_type !== "security_key");
+                if (!selected) selected = keys[0];
 
-                    if (this.key_type === "security_key") {
-                        // Derive the wrapping key from the security key
-                        pass = await vault_utils.security_key_derive_key(
-                            params.credential_id,
-                            params.prf_salt
-                        );
-                    } else {
-                        // Request the password from the user and derive the user key
-                        raw_password = (
-                            await askpassword({
-                                confirm: false,
-                                title: _t("Unlock your private key"),
-                            })
-                        ).password;
-                        let password = raw_password;
+                this.salt = vault_utils.fromBase64(selected.salt);
+                this.iterations = selected.iterations;
+                this.version = selected.version || 0;
+                this.key_type = selected.key_type || "password";
 
-                        // Compatibility
-                        if (!this.version) password = session.username + "|" + password;
+                let pass = null;
+                let raw_password = null;
 
-                        pass = await vault_utils.derive_key(
-                            password,
-                            this.salt,
-                            this.iterations
-                        );
-                    }
+                if (this.key_type === "security_key") {
+                    // Derive the wrapping key from the security key
+                    pass = await vault_utils.security_key_derive_key(
+                        selected.credential_id,
+                        selected.prf_salt
+                    );
+                } else {
+                    // Request the password from the user and derive the user key
+                    raw_password = (
+                        await askpassword({
+                            confirm: false,
+                            title: _t("Unlock your private key"),
+                        })
+                    ).password;
+                    let password = raw_password;
 
-                    this.keys = {
-                        publicKey: await vault_utils.load_public_key(params.public),
-                        privateKey: await vault_utils.load_private_key(
-                            params.private,
-                            pass,
-                            params.iv
-                        ),
-                    };
+                    // Compatibility
+                    if (!this.version) password = session.username + "|" + password;
 
-                    this.time = new Date();
-                    this.uuid = params.uuid;
-
-                    this._check_key_migration({password: raw_password});
-                    return true;
+                    pass = await vault_utils.derive_key(
+                        password,
+                        this.salt,
+                        this.iterations
+                    );
                 }
-                return false;
+
+                this.keys = {
+                    publicKey: await vault_utils.load_public_key(selected.public),
+                    privateKey: await vault_utils.load_private_key(
+                        selected.private,
+                        pass,
+                        selected.iv
+                    ),
+                };
+
+                this.time = new Date();
+                this.uuid = selected.uuid;
+
+                return true;
             }
 
             /**
@@ -568,6 +588,68 @@ const vaultService = {
             async share(master_key, public_key) {
                 const key = await this.unwrap(master_key);
                 return await this.wrap_with(key, public_key);
+            }
+
+            /**
+             * Pick the wrapping of the master key which matches the currently
+             * unlocked key from a {user_key_uuid: wrapped} map (JSON string).
+             *
+             * @param {String} master_key JSON encoded map or a plain string
+             * @returns the wrapped master key for the unlocked key or false
+             */
+            pick_master_key(master_key) {
+                if (!master_key) return false;
+
+                let map = null;
+                try {
+                    map = JSON.parse(master_key);
+                } catch {
+                    return master_key;
+                }
+
+                if (typeof map !== "object" || map === null) return master_key;
+                return map[this.uuid] || false;
+            }
+
+            /**
+             * Unwrap the master key from a {user_key_uuid: wrapped} map using the
+             * currently unlocked key.
+             *
+             * @param {String} master_key JSON encoded map or a plain string
+             * @returns the unwrapped master key
+             */
+            async unwrap_master_key(master_key) {
+                return await this.unwrap(this.pick_master_key(master_key));
+            }
+
+            /**
+             * Wrap a master key for every key of the current user.
+             *
+             * @param {CryptoKey} master_key
+             * @returns a {user_key_uuid: wrapped} map
+             */
+            async wrap_for_all(master_key) {
+                await this._ensure_keys();
+                const params = await rpc("/vault/keys/get");
+                const keys = params.keys || [];
+                const result = {};
+                for (const key of keys)
+                    result[key.uuid] = await this.wrap_with(master_key, key.public);
+                return result;
+            }
+
+            /**
+             * Wrap a master key for every public key of another user.
+             *
+             * @param {CryptoKey} master_key
+             * @param {Array} public_keys array of {uuid, public}
+             * @returns a {user_key_uuid: wrapped} map
+             */
+            async wrap_for_public_keys(master_key, public_keys) {
+                const result = {};
+                for (const entry of public_keys || [])
+                    result[entry.uuid] = await this.wrap_with(master_key, entry.public);
+                return result;
             }
         }
         return new Vault();

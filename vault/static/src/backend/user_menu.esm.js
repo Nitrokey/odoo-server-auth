@@ -8,8 +8,8 @@ import {user} from "@web/core/user";
 export function vaultPreferencesItem(env) {
     return {
         type: "item",
-        id: "key_management",
-        description: _t("Key Management"),
+        id: "vault_keys",
+        description: _t("Vault Keys"),
         callback: async function () {
             const actionDescription = await env.services.orm.call(
                 "res.users",

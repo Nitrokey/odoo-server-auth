@@ -1,6 +1,7 @@
 # © 2021 Florian Kantelberg - initOS GmbH
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
+import json
 import logging
 from datetime import datetime
 from uuid import uuid4
@@ -33,12 +34,22 @@ class TestShare(BaseCommon):
     def test_inbox(self):
         model = self.env["vault.inbox"]
         user = self.env.user
+        key = self.env["res.users.key"].create(
+            {
+                "user_id": user.id,
+                "public": "public",
+                "salt": "42",
+                "iv": "2424",
+                "iterations": 4000,
+                "private": "24",
+            }
+        )
         vals = {
             "name": f"Inbox {user.name}",
             "secret": "secret",
             "iv": "iv",
             "user": user,
-            "key": "key",
+            "keys": {key.uuid: "key"},
             "secret_file": "",
             "filename": "",
         }
@@ -74,11 +85,21 @@ class TestShare(BaseCommon):
 
     def test_send_wizard(self):
         user = self.env.user
+        key = self.env["res.users.key"].create(
+            {
+                "user_id": user.id,
+                "public": "public",
+                "salt": "42",
+                "iv": "2424",
+                "iterations": 4000,
+                "private": "24",
+            }
+        )
         wiz = self.env["vault.send.wizard"].create(
             {
                 "name": uuid4(),
                 "iv": "iv",
-                "key_user": "key",
+                "key_user": json.dumps({key.uuid: "key"}),
                 "key": "k",
                 "secret": uuid4(),
                 "user_id": user.id,
@@ -87,7 +108,12 @@ class TestShare(BaseCommon):
 
         # Create a new inbox
         wiz.action_send()
-        self.assertTrue(self.env["vault.inbox"].search([("name", "=", wiz.name)]))
+        inbox = self.env["vault.inbox"].search([("name", "=", wiz.name)])
+        self.assertTrue(inbox)
+        self.assertEqual(
+            inbox.wrapped_key_ids.filtered(lambda w: w.user_key_id == key).key,
+            "key",
+        )
 
     def test_store_wizard(self):
         vault = self.env["vault"].create({"name": "Vault"})
@@ -106,9 +132,6 @@ class TestShare(BaseCommon):
                 "model": "vault.field",
             }
         )
-
-        vault.right_ids.write({"key": uuid4()})
-        self.assertEqual(wiz.master_key, vault.right_ids.key)
 
         wiz.action_store()
 

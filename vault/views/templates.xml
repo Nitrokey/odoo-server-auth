@@ -17,12 +17,17 @@
                     t-att-value="request.csrf_token()"
                 />
                 <input type="hidden" id="token" name="token" t-att-value="token" />
-                <input type="hidden" id="public" name="public" t-att-value="public" />
+                <input
+                    type="hidden"
+                    id="publics"
+                    name="publics"
+                    t-att-value="publics_json"
+                />
                 <input type="hidden" id="encrypted" name="encrypted" />
                 <input type="hidden" id="encrypted_file" name="encrypted_file" />
                 <input type="hidden" id="filename" name="filename" />
                 <input type="hidden" id="iv" name="iv" />
-                <input type="hidden" id="key" name="key" />
+                <input type="hidden" id="keys" name="keys" />
 
                 <div class="form-group">
                     <label for="name">Name of your secret:</label>

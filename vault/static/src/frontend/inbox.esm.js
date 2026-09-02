@@ -8,9 +8,9 @@ let key = false;
 let iv = false;
 
 const fields = [
-    "key",
+    "keys",
     "iv",
-    "public",
+    "publics",
     "encrypted",
     "secret",
     "encrypted_file",
@@ -31,15 +31,27 @@ async function encrypt_and_store(value, target) {
     // Find all the possible elements which are needed
     for (const id of fields) if (!data[id]) data[id] = document.getElementById(id);
 
-    // We expect a public key here otherwise we can't procceed
-    if (!data.public.value) return;
+    // We expect at least one public key here otherwise we can't procceed
+    if (!data.publics.value) return;
 
-    const public_key = await utils.load_public_key(data.public.value);
+    let publics = [];
+    try {
+        publics = JSON.parse(data.publics.value) || [];
+    } catch {
+        return;
+    }
+    if (!publics.length) return;
 
-    // Create a new key if not already present
+    // Create a new key if not already present and wrap it for every key of the
+    // recipient so any of the recipient's keys can unwrap the secret
     if (!key) {
         key = await utils.generate_key();
-        data.key.value = await utils.wrap(key, public_key);
+        const wrapped = {};
+        for (const entry of publics) {
+            const public_key = await utils.load_public_key(entry.public);
+            wrapped[entry.uuid] = await utils.wrap(key, public_key);
+        }
+        data.keys.value = JSON.stringify(wrapped);
     }
 
     // Create a new IV if not already present

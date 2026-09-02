@@ -14,6 +14,15 @@ Shared-key encryption
 
 To be able to securely share sensitive data between all users a shared-key encryption is used. All users share a common secret for each vault. This secret is encrypted by the public key of each user to grant access to the user by using the private key to restore the secret.
 
+Multiple keys per user
+======================
+
+A user can have multiple keys and every key can unlock the vaults. The master key of a vault is therefore wrapped once per key of every user with access to the vault (stored in ``vault.right.key``). Inbox keys are wrapped the same way (stored in ``vault.inbox.wrap``). When a vault is shared with another user the master key is wrapped for every key of the recipient.
+
+Adding a key unwraps every reachable master key and inbox key with a currently unlocked key and re-wraps them for the new key in addition to the existing keys. Removing a key rotates the master key of every affected vault, re-encrypts the data with the new master key and wraps it only for the remaining keys, so the removed key loses access. Removing the last remaining key is not allowed.
+
+Removal only rotates the master key of vaults the user can write to. For vaults the user can only read and for inboxes the removed key's wrappings are simply dropped (which prevents any future use of that key), but the master key is not rotated because the user is not allowed to re-encrypt those vaults. As a consequence a party who both extracted the removed key and had already cached the master key of such a read-only vault could still decrypt its data. This matches the general trust model: read access already exposes the plaintext to the user, so sharing can not be revoked cryptographically from a vault the user does not control.
+
 Encryption of master key
 ------------------------
 

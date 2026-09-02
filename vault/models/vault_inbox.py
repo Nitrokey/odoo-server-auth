@@ -1,6 +1,7 @@
 # © 2021 Florian Kantelberg - initOS GmbH
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
+import json
 import logging
 from datetime import datetime, timedelta
 from uuid import uuid4
@@ -31,7 +32,8 @@ class VaultInbox(models.Model):
     secret = fields.Char(readonly=True)
     filename = fields.Char()
     secret_file = fields.Binary(attachment=False, readonly=True)
-    key = fields.Char(required=True)
+    wrapped_key_ids = fields.One2many("vault.inbox.wrap", "inbox_id", "Wrapped keys")
+    key = fields.Char(compute="_compute_key", store=False)
     iv = fields.Char(required=True)
     accesses = fields.Integer(
         "Access counter",
@@ -52,6 +54,13 @@ class VaultInbox(models.Model):
         ),
     ]
 
+    @api.depends("wrapped_key_ids.key")
+    def _compute_key(self):
+        for rec in self:
+            rec.key = json.dumps(
+                {w.user_key_id.uuid: w.key for w in rec.wrapped_key_ids if w.key}
+            )
+
     @api.depends("token")
     def _compute_inbox_link(self):
         base_url = self.env["ir.config_parameter"].sudo().get_param("web.base.url")
@@ -68,18 +77,30 @@ class VaultInbox(models.Model):
     def find_inbox(self, token):
         return self.search([("token", "=", token)])
 
+    def _build_wrapped_keys(self, keys, user):
+        """Build the (0, 0, {...}) commands for the per-key wrappings from a
+        {user_key_uuid: wrapped_key} mapping."""
+        by_uuid = {key.uuid: key for key in user.sudo().keys}
+        commands = []
+        for uuid, wrapped in (keys or {}).items():
+            user_key = by_uuid.get(uuid)
+            if user_key and wrapped:
+                commands.append((0, 0, {"user_key_id": user_key.id, "key": wrapped}))
+        return commands
+
     def store_in_inbox(
         self,
         name,
         secret,
         secret_file,
         iv,
-        key,
+        keys,
         user,
         filename,
         ip=None,
     ):
         log_info = {"name": user.name, "ip": ip or "n/a"}
+        wrapped = self._build_wrapped_keys(keys, user)
         if len(self) == 0:
             log = _("Created by %(name)s via %(ip)s") % log_info
             return self.create(
@@ -87,7 +108,7 @@ class VaultInbox(models.Model):
                     "name": name,
                     "accesses": 0,
                     "iv": iv,
-                    "key": key,
+                    "wrapped_key_ids": wrapped,
                     "secret": secret or None,
                     "secret_file": secret_file or None,
                     "filename": filename,
@@ -104,7 +125,7 @@ class VaultInbox(models.Model):
                 {
                     "accesses": self.accesses - 1,
                     "iv": iv,
-                    "key": key,
+                    "wrapped_key_ids": [(5, 0, 0)] + wrapped,
                     "secret": secret or None,
                     "secret_file": secret_file or None,
                     "filename": filename,

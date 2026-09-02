@@ -1,6 +1,7 @@
 # © 2021-2024 Florian Kantelberg - initOS GmbH
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
+import json
 import logging
 from uuid import uuid4
 
@@ -85,19 +86,53 @@ class Vault(models.Model):
                 "user_id"
             )
 
-    @api.depends("right_ids.key")
+    @api.depends("right_ids.wrapped_key_ids.key")
     def _compute_master_key(self):
         domain = [("user_id", "=", self.env.uid)]
         for rec in self:
             rights = rec.right_ids.filtered_domain(domain)
-            rec.master_key = rights[0].key if rights else False
+            wrapped = rights.wrapped_key_ids if rights else self.env["vault.right.key"]
+            rec.master_key = json.dumps(
+                {w.user_key_id.uuid: w.key for w in wrapped if w.key}
+            )
 
     def _inverse_master_key(self):
         domain = [("user_id", "=", self.env.uid)]
         for rec in self:
             rights = rec.right_ids.filtered_domain(domain)
-            if rights and not rights.key:
-                rights.key = rec.master_key
+            if not rights:
+                continue
+
+            try:
+                keys = json.loads(rec.master_key or "{}")
+            except (ValueError, TypeError):
+                continue
+
+            rec._store_wrapped_keys(rights, keys)
+
+    def _store_wrapped_keys(self, right, keys):
+        """Create/update/remove the vault.right.key rows of a right to match the
+        given {user_key_uuid: wrapped_key} mapping."""
+        right.ensure_one()
+        user_keys = right.user_id.sudo().keys
+        by_uuid = {key.uuid: key for key in user_keys}
+        existing = {w.user_key_id.uuid: w for w in right.wrapped_key_ids}
+
+        for uuid, wrapped in keys.items():
+            user_key = by_uuid.get(uuid)
+            if not user_key or not wrapped:
+                continue
+
+            if uuid in existing:
+                existing[uuid].key = wrapped
+            else:
+                self.env["vault.right.key"].sudo().create(
+                    {
+                        "right_id": right.id,
+                        "user_key_id": user_key.id,
+                        "key": wrapped,
+                    }
+                )
 
     def _get_default_rights(self):
         return [
@@ -133,7 +168,12 @@ class Vault(models.Model):
         self.ensure_one()
         result = []
         for right in self.right_ids:
-            result.append({"user": right.user_id.id, "public": right.public_key})
+            result.append(
+                {
+                    "user": right.user_id.id,
+                    "public_keys": right.user_id._get_public_keys(),
+                }
+            )
         return result
 
     def action_open_import_wizard(self):

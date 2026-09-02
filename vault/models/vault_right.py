@@ -1,6 +1,8 @@
 # © 2021 Florian Kantelberg - initOS GmbH
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
+import json
+
 from odoo import api, fields, models
 
 
@@ -24,7 +26,9 @@ class VaultRight(models.Model):
         domain=[("keys", "!=", False)],
         required=True,
     )
-    public_key = fields.Char(compute="_compute_public_key", readonly=True, store=False)
+    public_keys = fields.Char(
+        compute="_compute_public_keys", readonly=True, store=False
+    )
     perm_create = fields.Boolean(
         "Create",
         default=lambda self: self._get_is_owner(),
@@ -53,8 +57,14 @@ class VaultRight(models.Model):
     allowed_share = fields.Boolean(related="vault_id.allowed_share", store=False)
     allowed_delete = fields.Boolean(related="vault_id.allowed_delete", store=False)
 
-    # Encrypted with the public key of the user
-    key = fields.Char()
+    # The master key wrapped once per key of the user
+    wrapped_key_ids = fields.One2many("vault.right.key", "right_id", "Wrapped keys")
+    # JSON {user_key_uuid: wrapped_key} used to set the wrappings from the client
+    wrapped_keys = fields.Char(
+        compute="_compute_wrapped_keys",
+        inverse="_inverse_wrapped_keys",
+        store=False,
+    )
 
     _sql_constraints = (
         ("user_uniq", "UNIQUE(user_id, vault_id)", "The user must be unique"),
@@ -63,10 +73,26 @@ class VaultRight(models.Model):
     def _get_is_owner(self):
         return self.env.user == self.vault_id.user_id
 
-    @api.depends("user_id")
-    def _compute_public_key(self):
+    @api.depends("user_id", "user_id.keys")
+    def _compute_public_keys(self):
         for rec in self:
-            rec.public_key = rec.user_id.active_key.public
+            rec.public_keys = json.dumps(rec.user_id._get_public_keys())
+
+    @api.depends("wrapped_key_ids.key")
+    def _compute_wrapped_keys(self):
+        for rec in self:
+            rec.wrapped_keys = json.dumps(
+                {w.user_key_id.uuid: w.key for w in rec.wrapped_key_ids if w.key}
+            )
+
+    def _inverse_wrapped_keys(self):
+        for rec in self:
+            try:
+                keys = json.loads(rec.wrapped_keys or "{}")
+            except (ValueError, TypeError):
+                continue
+
+            self.env["vault"]._store_wrapped_keys(rec, keys)
 
     def log_access(self):
         for rec in self:

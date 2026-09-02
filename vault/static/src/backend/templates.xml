@@ -80,6 +80,24 @@
     </t>
 
     <t t-name="vault.AskPassDialogSelector">
+        <table class="col o_group mb-2">
+            <tr>
+                <td class="o_td_label text-nowrap">
+                    <label class="o_form_label" for="vault_label">
+                        Label (optional):
+                    </label>
+                </td>
+                <td class="col-12">
+                    <input
+                        type="text"
+                        name="label"
+                        id="vault_label"
+                        class="form-control"
+                        t-model="state.label"
+                    />
+                </td>
+            </tr>
+        </table>
         <label class="col-lg-auto col-form-label">
             Choose how to protect your new private key:
         </label>

@@ -22,12 +22,18 @@ patch(FormController.prototype, {
         const record = this.model.root;
         if (record.resModel !== "vault.send.wizard") return;
 
-        if (!record.data.user_id || !record.data.public) return;
+        if (!record.data.user_id || !record.data.public_keys) return;
+
+        let publics = [];
+        try {
+            publics = JSON.parse(record.data.public_keys || "[]");
+        } catch {
+            publics = [];
+        }
 
         const key = await this.vault.unwrap(record.data.key);
-        await record.update({
-            key_user: await this.vault.wrap_with(key, record.data.public),
-        });
+        const wrapped = await this.vault.wrap_for_public_keys(key, publics);
+        await record.update({key_user: JSON.stringify(wrapped)});
     },
 
     /**
@@ -48,13 +54,13 @@ patch(FormController.prototype, {
         )
             return;
 
-        const key = await this.vault.unwrap(record.data.key);
+        const key = await this.vault.unwrap_master_key(record.data.key);
         const secret = await this.vault_utils.sym_decrypt(
             key,
             record.data.secret_temporary,
             record.data.iv
         );
-        const master_key = await this.vault.unwrap(record.data.master_key);
+        const master_key = await this.vault.unwrap_master_key(record.data.master_key);
 
         await record.update({
             secret: await this.vault_utils.sym_encrypt(
@@ -66,85 +72,110 @@ patch(FormController.prototype, {
     },
 
     /**
-     * Generate a new key pair for the current user
+     * Add a new key in addition to the existing keys of the user
      *
      * @private
      * @param {Object} options passed to generate_keys (e.g. the key_type)
      */
-    async _newVaultKeyPair(options = {}) {
-        this.uuid = await this.vault._check_database();
-        if (this.uuid) {
-            // The user has a private key so get it
-            const private_key = await this.vault.get_private_key();
-
-            // Generate new keys
-            await this.vault.generate_keys(options);
-
-            const public_key = await this.vault.get_public_key();
-
-            // Re-encrypt the master keys
-            const master_keys = await rpc("/vault/rights/get");
-            let result = {};
-            for (const uuid in master_keys) {
-                result[uuid] = await this.vault_utils.wrap(
-                    await this.vault_utils.unwrap(master_keys[uuid], private_key),
-                    public_key
-                );
-            }
-
-            await rpc("/vault/rights/store", {keys: result});
-
-            // Re-encrypt the inboxes to not loose it
-            const inbox_keys = await rpc("/vault/inbox/get");
-            result = {};
-            for (const uuid in inbox_keys) {
-                result[uuid] = await this.vault_utils.wrap(
-                    await this.vault_utils.unwrap(inbox_keys[uuid], private_key),
-                    public_key
-                );
-            }
-
-            await rpc("/vault/inbox/store", {keys: result});
-        } else {
+    async _addVaultKey(options = {}) {
+        const hasKey = await this.vault._check_database();
+        if (!hasKey) {
+            // No key yet, just initialize the first one
             await this.vault._initialize_keys();
+            return;
         }
+
+        // Unlock a key and use the uuid of the key we actually unlocked with
+        const private_key = await this.vault.get_private_key();
+        const unlockedUuid = this.vault.uuid;
+
+        // Unwrap all master keys with the unlocked key
+        const master_keys = await rpc("/vault/rights/get");
+        const unwrapped_rights = {};
+        for (const uuid in master_keys) {
+            const wrapped = master_keys[uuid][unlockedUuid];
+            if (wrapped)
+                unwrapped_rights[uuid] = await this.vault_utils.unwrap(
+                    wrapped,
+                    private_key
+                );
+        }
+
+        // Unwrap all inbox keys with the unlocked key
+        const inbox_keys = await rpc("/vault/inbox/get");
+        const unwrapped_inbox = {};
+        for (const token in inbox_keys) {
+            const wrapped = inbox_keys[token][unlockedUuid];
+            if (wrapped)
+                unwrapped_inbox[token] = await this.vault_utils.unwrap(
+                    wrapped,
+                    private_key
+                );
+        }
+
+        // Generate the additional key
+        await this.vault.generate_keys(options);
+
+        // Re-wrap for every key of the user including the new one
+        let result = {};
+        for (const uuid in unwrapped_rights)
+            result[uuid] = await this.vault.wrap_for_all(unwrapped_rights[uuid]);
+        await rpc("/vault/rights/store", {keys: result});
+
+        result = {};
+        for (const token in unwrapped_inbox)
+            result[token] = await this.vault.wrap_for_all(unwrapped_inbox[token]);
+        await rpc("/vault/inbox/store", {keys: result});
     },
 
     /**
-     * Generate a new key pair and re-encrypt the master keys of the vaults.
-     * The user chooses how to protect the private key (password or security
-     * key) in the password dialog during the generation.
+     * Remove a key and rotate the master keys of the affected vaults
+     *
+     * @private
+     * @param {String} uuid the uuid of the key to remove
+     */
+    async _removeVaultKey(uuid) {
+        // Rotate writable vaults excluding the removed key, then remove it
+        const vaults = await this.model.orm.searchRead(
+            "vault",
+            [["allowed_write", "=", true]],
+            ["id"],
+            {limit: 0}
+        );
+
+        for (const vault of vaults)
+            await this._reencryptVaultById(vault.id, false, true, uuid);
+
+        await rpc("/vault/keys/remove", {uuid});
+    },
+
+    /**
+     * Add a new key and grant it access to all vaults and inboxes
      *
      * @private
      */
-    async _vaultRegenerateKey() {
+    async _vaultAddKey() {
         if (!this.vault_utils.supported()) return;
 
         var self = this;
 
         this.dialogService.add(ConfirmationDialog, {
-            body: _t("Do you really want to create a new key pair and set it active?"),
+            body: _t("Do you really want to add a new key?"),
             confirmLabel: _t("Confirm"),
             cancelLabel: _t("Discard"),
             confirm: () => {
                 return self
-                    ._newVaultKeyPair()
+                    ._addVaultKey()
                     .then(async () => {
-                        // Reload the form so the newly generated key shows up in
-                        // the "Manage my keys" list and the current flag is
-                        // updated. The key is already persisted server-side.
                         if (self.model && self.model.root) await self.model.root.load();
 
-                        self.notification.add(
-                            _t("A new private key has been generated."),
-                            {type: "success"}
-                        );
+                        self.notification.add(_t("A new key has been added."), {
+                            type: "success",
+                        });
                     })
                     .catch((error) => {
-                        // Surface errors (e.g. a missing PRF extension) in a
-                        // dialog instead of letting them bubble up as an uncaught
-                        // rejection. Include the error name (e.g. NotAllowedError)
-                        // to make opaque WebAuthn failures diagnosable.
+                        // Surface WebAuthn/PRF errors instead of an uncaught
+                        // rejection and keep the error name for diagnosis
                         let body = _t("An unexpected error occurred.");
                         if (error && error.message)
                             body = error.name
@@ -153,7 +184,73 @@ patch(FormController.prototype, {
                         else if (error && error.name) body = error.name;
 
                         self.dialogService.add(AlertDialog, {
-                            title: _t("Failed to generate the key pair"),
+                            title: _t("Failed to add the key"),
+                            body,
+                        });
+                    });
+            },
+        });
+    },
+
+    /**
+     * Remove the selected key and rotate the affected vaults
+     *
+     * @private
+     */
+    async _vaultRemoveKey() {
+        if (!this.vault_utils.supported()) return;
+
+        const root = this.model.root;
+        const list = root.data.keys;
+        const keys = list && list.records;
+        if (!keys || keys.length <= 1) {
+            this.dialogService.add(AlertDialog, {
+                title: _t("Cannot remove the key"),
+                body: _t("You can't remove your last key."),
+            });
+            return;
+        }
+
+        // The row the user clicked in the editable list is the edited record
+        const edited = list.editedRecord;
+        if (!edited) {
+            this.dialogService.add(AlertDialog, {
+                title: _t("Cannot remove the key"),
+                body: _t("Please click the key you want to remove first."),
+            });
+            return;
+        }
+
+        const uuid = edited.data.uuid;
+        var self = this;
+
+        this.dialogService.add(ConfirmationDialog, {
+            body: _t(
+                "Do you really want to remove this key? The vaults will be " +
+                    "re-encrypted to revoke its access."
+            ),
+            confirmLabel: _t("Confirm"),
+            cancelLabel: _t("Discard"),
+            confirm: () => {
+                return self
+                    ._removeVaultKey(uuid)
+                    .then(async () => {
+                        if (self.model && self.model.root) await self.model.root.load();
+
+                        self.notification.add(_t("The key has been removed."), {
+                            type: "success",
+                        });
+                    })
+                    .catch((error) => {
+                        let body = _t("An unexpected error occurred.");
+                        if (error && error.message)
+                            body = error.name
+                                ? `${error.name}: ${error.message}`
+                                : error.message;
+                        else if (error && error.name) body = error.name;
+
+                        self.dialogService.add(AlertDialog, {
+                            title: _t("Failed to remove the key"),
                             body,
                         });
                     });
@@ -172,12 +269,39 @@ patch(FormController.prototype, {
      */
     async _reencryptVault(verify = false, force = false) {
         const record = this.model.root;
+        return await this._reencryptVaultById(record.resId, verify, force);
+    },
 
+    /**
+     * Rotate the master key of a vault and re-encrypt its data
+     *
+     * @private
+     * @param {Number} vaultId
+     * @param {Boolean} verify
+     * @param {Boolean} force
+     * @param {String} excludeUuid a user key uuid to exclude from re-wrapping
+     */
+    async _reencryptVaultById(
+        vaultId,
+        verify = false,
+        force = false,
+        excludeUuid = null
+    ) {
         await this.vault._ensure_keys();
 
         const self = this;
         const master_key = await this.vault_utils.generate_key();
-        const current_key = await this.vault.unwrap(record.data.master_key);
+
+        // The vault master_key is a {user_key_uuid: wrapped} map for the user
+        const vaults = await this.model.orm.searchRead(
+            "vault",
+            [["id", "=", vaultId]],
+            ["master_key"],
+            {limit: 1}
+        );
+        const current_key = await this.vault.unwrap_master_key(
+            vaults.length ? vaults[0].master_key : false
+        );
 
         // This stores the additional changes made to rights, fields, and files
         const changes = [];
@@ -187,7 +311,7 @@ patch(FormController.prototype, {
             // Load the entire data from the database
             const records = await self.model.orm.searchRead(
                 model,
-                [["vault_id", "=", record.resId]],
+                [["vault_id", "=", vaultId]],
                 ["iv", "value", "name", "entry_name"],
                 {
                     context: {vault_reencrypt: true},
@@ -227,21 +351,31 @@ patch(FormController.prototype, {
 
         this.ui.block();
         try {
-            // Update the rights. Load without limit
+            // Update the rights. Load without limit. Wrap the new master key for
+            // every key of each user of the vault.
             const rights = await self.model.orm.searchRead(
                 "vault.right",
-                [["vault_id", "=", record.resId]],
-                ["public_key"],
+                [["vault_id", "=", vaultId]],
+                ["public_keys"],
                 {limit: 0}
             );
 
             for (const right of rights) {
-                const key = await this.vault.wrap_with(master_key, right.public_key);
+                let publics = [];
+                try {
+                    publics = JSON.parse(right.public_keys || "[]");
+                } catch {
+                    publics = [];
+                }
+
+                // Never re-wrap for the key being removed
+                if (excludeUuid)
+                    publics = publics.filter((entry) => entry.uuid !== excludeUuid);
 
                 changes.push({
                     id: right.id,
                     model: "vault.right",
-                    key: key,
+                    keys: await this.vault.wrap_for_public_keys(master_key, publics),
                 });
             }
 
@@ -260,7 +394,7 @@ patch(FormController.prototype, {
 
             if (!verify) {
                 await rpc("/vault/replace", {data: changes});
-                await this.model.root.load();
+                if (this.model.root.resModel === "vault") await this.model.root.load();
             }
         } finally {
             this.ui.unblock();
@@ -279,7 +413,7 @@ patch(FormController.prototype, {
         // Try to import the file on the fly and store the compatible JSON in the
         // crypted_content field for the python backend
         const data = await this.importer.import(
-            await this.vault.unwrap(record.data.master_key),
+            await this.vault.unwrap_master_key(record.data.master_key),
             record.data.name,
             atob(record.data.content)
         );
@@ -288,27 +422,31 @@ patch(FormController.prototype, {
     },
 
     /**
-     * Ensure that a vault.right as the shared master_key set
+     * Ensure that a vault.right has the shared master key wrapped for all keys
      *
      * @private
      * @param {Object} root
      * @param {Object} right
      */
     async _vaultEnsureRightKey(root, right) {
-        if (!root.data.master_key || right.data.key) return;
+        if (!root.data.master_key || right.data.wrapped_keys) return;
 
         const params = {user_id: right.data.user_id[0]};
         const user = await rpc("/vault/public", params);
 
-        if (!user || !user.public_key) throw new TypeError("User has no public key");
+        if (!user || !user.public_keys) throw new TypeError("User has no public key");
 
-        await right.update({
-            key: await this.vault.share(root.data.master_key, user.public_key),
-        });
+        const master_key = await this.vault.unwrap_master_key(root.data.master_key);
+        const wrapped = await this.vault.wrap_for_public_keys(
+            master_key,
+            user.public_keys
+        );
+
+        await right.update({wrapped_keys: JSON.stringify(wrapped)});
     },
 
     /**
-     * Ensures that the master_key of the vault and right lines are set
+     * Ensures that the master key of the vault and right lines are set
      *
      * @private
      */
@@ -316,12 +454,12 @@ patch(FormController.prototype, {
         const root = this.model.root;
         if (root.resModel !== "vault") return;
 
-        if (!root.data.master_key)
-            await root.update({
-                master_key: await this.vault.wrap(
-                    await this.vault_utils.generate_key()
-                ),
-            });
+        if (!root.data.master_key) {
+            const wrapped = await this.vault.wrap_for_all(
+                await this.vault_utils.generate_key()
+            );
+            await root.update({master_key: JSON.stringify(wrapped)});
+        }
 
         if (root.data.right_ids)
             for (const right of root.data.right_ids.records)
@@ -349,8 +487,11 @@ patch(FormController.prototype, {
         const root = this.model.root;
         switch (root.resModel) {
             case "res.users":
-                if (button && button.name === "vault_generate_key") {
-                    await this._vaultRegenerateKey();
+                if (button && button.name === "vault_add_key") {
+                    await this._vaultAddKey();
+                    return false;
+                } else if (button && button.name === "vault_remove_key") {
+                    await this._vaultRemoveKey();
                     return false;
                 }
                 break;

@@ -17,6 +17,16 @@ an additional method next to the password. An administrator can restrict
 which protection methods are allowed for newly generated keys (password
 only, security key only, or both).
 
+A user can register multiple keys at the same time and every key can
+unlock the vaults. This allows to combine e.g. a password protected key
+with one or more security keys. Adding a key grants it access to all
+vaults and inboxes the user can currently access. Removing a key revokes
+its access and re-encrypts the vaults the user can write to with a fresh
+master key so the removed key can no longer decrypt them. For read-only
+vaults and inboxes the removed key's access is dropped but the data is not
+re-encrypted. Each key can be given a label to tell them apart in the
+"Vault Keys" list.
+
 This modules requires a secure context for the browser to work properly
 and therefore HTTPS support is required.
 

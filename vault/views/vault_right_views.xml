@@ -3,11 +3,11 @@
     <record id="view_right_tree" model="ir.ui.view">
         <field name="model">vault.right</field>
         <field name="arch" type="xml">
-            <list editable="bottom" decoration-danger="not key">
+            <list editable="bottom" decoration-danger="not wrapped_key_ids">
                 <field name="vault_id" column_invisible="1" />
                 <field name="master_key" column_invisible="1" />
-                <field name="key" column_invisible="1" />
-                <field name="public_key" column_invisible="1" />
+                <field name="wrapped_key_ids" column_invisible="1" />
+                <field name="public_keys" column_invisible="1" />
                 <field
                     name="user_id"
                     options="{'no_create': True, 'no_quick_create': True, 'no_create_edit': True}"
